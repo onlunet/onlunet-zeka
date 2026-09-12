@@ -14,7 +14,12 @@
  */
 
 import { RefactoringErrorCodes } from './visual-token-system.js';
-import { executeDesignProposal, rollbackVisualPatch } from './visual-refactoring-engine.js';
+import {
+  executeDesignProposal,
+  rollbackVisualPatch,
+  recordAuditEvent,
+  AuditEventTypes
+} from './visual-refactoring-engine.js';
 import { analyzeScreenshot } from './visual-intelligence.js';
 
 /**
@@ -183,11 +188,44 @@ export async function runVisualRegressionCycle({
     };
   }
 
+  // Record VISUAL_REGRESSION_STARTED
+  recordAuditEvent({
+    eventType: AuditEventTypes.VISUAL_REGRESSION_STARTED,
+    proposalId: proposal.proposalId,
+    authorizationId: authorization?.id || null,
+    beforeHash: executionResult.beforeHash,
+    afterHash: executionResult.afterHash,
+    decision: 'EVALUATING',
+    rollbackStatus: 'AVAILABLE'
+  });
+
   // 4. Evaluate Regression Policy
   const policyResult = evaluateVisualRegressionPolicy({
     beforeAudit: baselineAudit,
     afterAudit: postAudit
   });
+
+  if (policyResult.decision === 'KEEP') {
+    recordAuditEvent({
+      eventType: AuditEventTypes.VISUAL_REGRESSION_PASSED,
+      proposalId: proposal.proposalId,
+      authorizationId: authorization?.id || null,
+      beforeHash: executionResult.beforeHash,
+      afterHash: executionResult.afterHash,
+      decision: 'KEEP',
+      rollbackStatus: 'AVAILABLE'
+    });
+  } else {
+    recordAuditEvent({
+      eventType: AuditEventTypes.VISUAL_REGRESSION_FAILED,
+      proposalId: proposal.proposalId,
+      authorizationId: authorization?.id || null,
+      beforeHash: executionResult.beforeHash,
+      afterHash: executionResult.afterHash,
+      decision: 'ROLLBACK',
+      rollbackStatus: 'TRIGGERING_ROLLBACK'
+    });
+  }
 
   // 5. Automated Rollback on Regression
   let rollbackResult = null;

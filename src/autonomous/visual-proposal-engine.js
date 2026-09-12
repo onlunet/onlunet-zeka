@@ -14,6 +14,7 @@
  */
 
 import { RefactoringErrorCodes } from './visual-token-system.js';
+import { recordAuditEvent, AuditEventTypes } from './visual-refactoring-engine.js';
 
 /**
  * Whitelist of safe, atomic design change types permitted in FAZ 72
@@ -181,5 +182,18 @@ export function createDesignProposal(params = {}) {
   };
 
   validateDesignProposal(proposal);
+
+  try {
+    recordAuditEvent({
+      eventType: AuditEventTypes.PROPOSAL_CREATED,
+      proposalId: proposal.proposalId,
+      authorizationId: null,
+      beforeHash: null,
+      afterHash: null,
+      decision: 'PROPOSAL_ONLY',
+      rollbackStatus: 'NONE'
+    });
+  } catch {}
+
   return Object.freeze(proposal);
 }

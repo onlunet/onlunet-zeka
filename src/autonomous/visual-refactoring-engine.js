@@ -29,9 +29,58 @@ import { validateDesignProposal } from './visual-proposal-engine.js';
 const patchSnapshots = new Map();
 
 /**
+ * Standard Audit Event Types for Visual Refactoring Lifecycle
+ */
+export const AuditEventTypes = Object.freeze({
+  PROPOSAL_CREATED: 'PROPOSAL_CREATED',
+  AUTHORIZATION_GRANTED: 'AUTHORIZATION_GRANTED',
+  EXECUTION_STARTED: 'EXECUTION_STARTED',
+  EXECUTION_COMPLETED: 'EXECUTION_COMPLETED',
+  VISUAL_REGRESSION_STARTED: 'VISUAL_REGRESSION_STARTED',
+  VISUAL_REGRESSION_PASSED: 'VISUAL_REGRESSION_PASSED',
+  VISUAL_REGRESSION_FAILED: 'VISUAL_REGRESSION_FAILED',
+  ROLLBACK_STARTED: 'ROLLBACK_STARTED',
+  ROLLBACK_COMPLETED: 'ROLLBACK_COMPLETED'
+});
+
+/**
  * Immutable Audit Ledger
  */
 const auditLedger = [];
+
+/**
+ * Audit Event Stream Ledger
+ */
+const auditEvents = [];
+
+/**
+ * Records a granular audit lifecycle event
+ */
+export function recordAuditEvent({
+  eventType,
+  proposalId = null,
+  authorizationId = null,
+  beforeHash = null,
+  afterHash = null,
+  decision = null,
+  rollbackStatus = null,
+  timestamp = null,
+  metadata = {}
+} = {}) {
+  const record = Object.freeze({
+    eventType,
+    proposalId,
+    authorizationId,
+    timestamp: timestamp || new Date().toISOString(),
+    beforeHash,
+    afterHash,
+    decision,
+    rollbackStatus,
+    ...metadata
+  });
+  auditEvents.push(record);
+  return record;
+}
 
 /**
  * Computes SHA-256 hex digest of string content
@@ -44,6 +93,9 @@ export function computeContentHash(content) {
  * Retrieves audit ledger entries with optional filter
  */
 export function getAuditLedger(filter = {}) {
+  if (filter.eventsOnly === true || filter.type === 'events') {
+    return getAuditEventLedger(filter);
+  }
   let entries = [...auditLedger];
   if (filter.projectId) {
     entries = entries.filter(e => e.projectId === filter.projectId);
@@ -55,10 +107,25 @@ export function getAuditLedger(filter = {}) {
 }
 
 /**
+ * Retrieves granular audit lifecycle event stream
+ */
+export function getAuditEventLedger(filter = {}) {
+  let entries = [...auditEvents];
+  if (filter.proposalId) {
+    entries = entries.filter(e => e.proposalId === filter.proposalId);
+  }
+  if (filter.eventType) {
+    entries = entries.filter(e => e.eventType === filter.eventType);
+  }
+  return Object.freeze(entries);
+}
+
+/**
  * Clears audit ledger (primarily for test fixture isolation)
  */
 export function resetAuditLedgerForTesting() {
   auditLedger.length = 0;
+  auditEvents.length = 0;
   patchSnapshots.clear();
 }
 
@@ -82,6 +149,17 @@ export async function executeDesignProposal({
   actor = 'operator',
   dryRun = false
 } = {}) {
+  // Record EXECUTION_STARTED audit event
+  recordAuditEvent({
+    eventType: AuditEventTypes.EXECUTION_STARTED,
+    proposalId: proposal?.proposalId || null,
+    authorizationId: authorization?.id || null,
+    beforeHash: null,
+    afterHash: null,
+    decision: 'STARTING',
+    rollbackStatus: 'PENDING'
+  });
+
   // 1. Validate Proposal Schema & Allowed Change Types
   validateDesignProposal(proposal);
 
@@ -165,11 +243,24 @@ export async function executeDesignProposal({
     appliedCount,
     appliedChanges,
     status: dryRun ? 'DRY_RUN' : 'APPLIED',
+    decision: dryRun ? 'DRY_RUN' : 'APPLIED',
+    rollbackStatus: dryRun ? 'NONE' : 'AVAILABLE',
     rollbackAvailable: !dryRun,
     dryRun,
     timestamp: new Date().toISOString()
   });
   auditLedger.push(auditRecord);
+
+  // Record EXECUTION_COMPLETED audit event
+  recordAuditEvent({
+    eventType: AuditEventTypes.EXECUTION_COMPLETED,
+    proposalId: proposal.proposalId,
+    authorizationId: authorization.id || 'auth-direct',
+    beforeHash,
+    afterHash,
+    decision: auditRecord.decision,
+    rollbackStatus: auditRecord.rollbackStatus
+  });
 
   return Object.freeze({
     success: true,
@@ -180,6 +271,8 @@ export async function executeDesignProposal({
     appliedCount,
     dryRun,
     status: auditRecord.status,
+    decision: auditRecord.decision,
+    rollbackStatus: auditRecord.rollbackStatus,
     rollbackAvailable: auditRecord.rollbackAvailable
   });
 }
@@ -211,6 +304,17 @@ export async function rollbackVisualPatch(patchId, workspaceRoot) {
     throw new Error(`[${RefactoringErrorCodes.FILE_NOT_FOUND}] Target file not found at: ${snapshot.targetFilePath}`);
   }
 
+  // Record ROLLBACK_STARTED audit event
+  recordAuditEvent({
+    eventType: AuditEventTypes.ROLLBACK_STARTED,
+    proposalId: snapshot.proposalId,
+    authorizationId: null,
+    beforeHash: snapshot.afterHash,
+    afterHash: null,
+    decision: 'ROLLING_BACK',
+    rollbackStatus: 'IN_PROGRESS'
+  });
+
   // Restore pre-image
   fs.writeFileSync(snapshot.targetFilePath, snapshot.beforeContent, 'utf8');
   const restoredHash = computeContentHash(fs.readFileSync(snapshot.targetFilePath, 'utf8'));
@@ -227,6 +331,8 @@ export async function rollbackVisualPatch(patchId, workspaceRoot) {
     const updatedEntry = Object.freeze({
       ...existingAudit,
       status: 'ROLLED_BACK',
+      decision: 'ROLLBACK',
+      rollbackStatus: 'ROLLED_BACK',
       rollbackAvailable: false,
       rolledBackAt: new Date().toISOString()
     });
@@ -234,10 +340,23 @@ export async function rollbackVisualPatch(patchId, workspaceRoot) {
     auditLedger[idx] = updatedEntry;
   }
 
+  // Record ROLLBACK_COMPLETED audit event
+  recordAuditEvent({
+    eventType: AuditEventTypes.ROLLBACK_COMPLETED,
+    proposalId: snapshot.proposalId,
+    authorizationId: null,
+    beforeHash: snapshot.afterHash,
+    afterHash: restoredHash,
+    decision: 'ROLLBACK',
+    rollbackStatus: 'ROLLED_BACK'
+  });
+
   return Object.freeze({
     success: true,
     patchId,
     status: 'ROLLED_BACK',
+    decision: 'ROLLBACK',
+    rollbackStatus: 'ROLLED_BACK',
     restoredHash,
     rolledBackAt: new Date().toISOString()
   });
