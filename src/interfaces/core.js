@@ -1,9 +1,16 @@
-﻿/**
+/**
  * AI Development OS - Core System Interfaces & Abstractions
  * Phase 1 Foundation & Phase 1.1 Hardened Contract
  */
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ErrorCodes } from '../contracts/constants.js';
+
+export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+export function getProjectRoot() {
+  return PROJECT_ROOT;
+}
 
 export function createEnvironmentDoctorInterface({
   discoverEnvironment = async () => { throw new Error(`[${ErrorCodes.NOT_VERIFIED}] discoverEnvironment not implemented`); },

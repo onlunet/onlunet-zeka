@@ -27,6 +27,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { PROJECT_ROOT } from '../interfaces/core.js';
 import { createExecutionPlanContract } from '../contracts/execution-plan.js';
 import { executeAuthorizedFileMutation, FileMutationOperation } from '../contracts/file-mutation.js';
 import { createTask, createApproval } from '../contracts/domain.js';
@@ -2345,13 +2346,20 @@ ${cleanMapsUrl ? `\n**Google Haritalar Kaydı**: [Haritada Görüntüle](${clean
  * Creates the Autonomous Corporate Generator Engine
  */
 export function createCorporateGenerator({
-  sourceKurumsalPath = 'D:\\Antigravity\\onlunet-kurumsal'
+  sourceKurumsalPath = process.env.GOLDEN_MASTER_PATH ||
+    (fs.existsSync(path.resolve(PROJECT_ROOT, '../onlunet-kurumsal'))
+      ? path.resolve(PROJECT_ROOT, '../onlunet-kurumsal')
+      : 'D:\\Antigravity\\onlunet-kurumsal')
 } = {}) {
   const verifiedSource = fs.existsSync(sourceKurumsalPath)
     ? sourceKurumsalPath
-    : (fs.existsSync(path.resolve(process.cwd(), '../onlunet-kurumsal'))
-        ? path.resolve(process.cwd(), '../onlunet-kurumsal')
-        : sourceKurumsalPath);
+    : (process.env.GOLDEN_MASTER_PATH && fs.existsSync(process.env.GOLDEN_MASTER_PATH)
+        ? process.env.GOLDEN_MASTER_PATH
+        : (fs.existsSync(path.resolve(PROJECT_ROOT, '../onlunet-kurumsal'))
+            ? path.resolve(PROJECT_ROOT, '../onlunet-kurumsal')
+            : (fs.existsSync('D:\\Antigravity\\onlunet-kurumsal')
+                ? 'D:\\Antigravity\\onlunet-kurumsal'
+                : sourceKurumsalPath)));
 
   return {
     sourcePath: verifiedSource,
@@ -2685,10 +2693,12 @@ function getSecurityHeaders() {
         }
 
         // Guarantee argon2 module fallback from onlunet-kurumsal master
-        if (!patchedServerContent.includes("argon2 = require('D:/Antigravity/onlunet-kurumsal/node_modules/@node-rs/argon2');")) {
+        const normalizedArgonPath = path.resolve(verifiedSource, 'node_modules/@node-rs/argon2').replace(/\\/g, '/');
+        const argonRequireStr = `argon2 = require('${normalizedArgonPath}');`;
+        if (!patchedServerContent.includes(argonRequireStr) && !patchedServerContent.includes("argon2 = require('D:/Antigravity/onlunet-kurumsal/node_modules/@node-rs/argon2');")) {
           patchedServerContent = patchedServerContent.replace(
             "console.warn('[AUTH WARNING] @node-rs/argon2 not found.');",
-            "try { argon2 = require('D:/Antigravity/onlunet-kurumsal/node_modules/@node-rs/argon2'); } catch(e2) { console.warn('[AUTH WARNING] @node-rs/argon2 not found.'); }"
+            `try { ${argonRequireStr} } catch(e2) { console.warn('[AUTH WARNING] @node-rs/argon2 not found.'); }`
           );
         }
 

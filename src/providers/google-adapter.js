@@ -198,6 +198,23 @@ export function createGoogleProviderAdapter({
       const promptText = typeof prompt === 'string' ? prompt : (prompt && prompt.task ? prompt.task : JSON.stringify(prompt));
       const roleSystemPrompt = systemPrompt || `${defaultSystemPrompt} Your assigned role is: ${agentRole}.`;
 
+      const userParts = [{ text: promptText }];
+      const images = (metadata && metadata.images) || (prompt && prompt.images) || (constraints && constraints.images);
+      if (Array.isArray(images)) {
+        for (const img of images) {
+          if (img && img.data) {
+            userParts.push({
+              inlineData: {
+                mimeType: img.mimeType || 'image/png',
+                data: img.data
+              }
+            });
+          } else if (img && img.inlineData) {
+            userParts.push({ inlineData: img.inlineData });
+          }
+        }
+      }
+
       const requestBody = {
         systemInstruction: {
           parts: [{ text: roleSystemPrompt }]
@@ -205,7 +222,7 @@ export function createGoogleProviderAdapter({
         contents: [
           {
             role: 'user',
-            parts: [{ text: promptText }]
+            parts: userParts
           }
         ],
         generationConfig: {

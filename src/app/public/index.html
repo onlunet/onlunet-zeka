@@ -1315,6 +1315,10 @@
         <span>🎯</span> SEO & Harita Radarı
         <span class="nav-badge-pill">BİRLEŞİK</span>
       </button>
+      <button class="nav-tab-btn" onclick="switchTab('visual-qa')" id="tab-visual-qa-btn">
+        <span>👁️</span> Görsel Kalite (Visual QA)
+        <span class="nav-badge-pill" style="background:#8b5cf6;color:#fff;">FAZ 71</span>
+      </button>
       <button class="nav-tab-btn" onclick="switchTab('agent-squad')" id="tab-agent-squad-btn">
         <span>⚡</span> Çoklu Ajan Konsolu
       </button>
@@ -2605,6 +2609,132 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
       </div>
     </section>
 
+    <!-- VIEW: VISUAL INTELLIGENCE & QUALITY AUDITOR (FAZ 71) -->
+    <section id="view-visual-qa" class="studio-view" style="display: none; flex-direction: column; gap: 24px; padding: 24px; max-width: 1400px; margin: 0 auto; width: 100%;">
+      <!-- Header Banner -->
+      <div style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(2, 132, 199, 0.08)); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: var(--radius-lg); padding: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+            <span style="font-size: 1.6rem;">👁️</span>
+            <h2 style="color: #fff; font-size: 1.4rem; margin: 0; font-weight: 700;">Görsel Zeka & AI Tasarım Eleştirmeni (Visual QA)</h2>
+            <span class="nav-badge-pill" style="background: #8b5cf6; color: #fff; font-weight: 600;">FAZ 71</span>
+          </div>
+          <p style="color: var(--text-muted); margin: 0; font-size: 0.92rem; max-width: 800px;">
+            Render edilen web sitesini çoklu cihazda (Desktop, Tablet, Mobil) görüntüler; tipografi, boşluk, kontrast, renk paletleri ve AI-şablon tekrar desenlerini tespit ederek nesnel ve açıklanabilir tasarım kalite raporu üretir.
+          </p>
+        </div>
+      </div>
+
+      <!-- Action & Input Card -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        <label style="color: var(--text-main); font-weight: 600; font-size: 0.95rem;">🎯 Denetlenecek Web Sitesi veya Port URL'si</label>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <input
+            type="text"
+            id="visual-audit-url-input"
+            placeholder="http://localhost:8080/tr/ veya https://firma.com"
+            value="http://localhost:8080/tr/"
+            style="flex: 1; min-width: 280px; padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); color: #fff; font-size: 0.95rem; outline: none;"
+            onkeypress="if(event.key === 'Enter') runVisualAudit()"
+          >
+          <button class="btn-generate" id="btn-run-visual-audit" onclick="runVisualAudit()" style="background: #8b5cf6;">
+            <span>⚡</span> Görsel Denetimi Başlat
+          </button>
+          <button class="corp-preset-btn" onclick="saveAsVisualBaseline()" title="Mevcut renderı baseline olarak dondurur">
+            <span>📌</span> Baseline Olarak Kaydet
+          </button>
+          <button class="corp-preset-btn" onclick="compareWithVisualBaseline()" title="Baseline ile farkları kıyaslar">
+            <span>🔄</span> Baseline ile Kıyasla
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 0.82rem; color: var(--text-muted);">Hızlı Port Seçimi:</span>
+          <button class="corp-preset-btn" onclick="document.getElementById('visual-audit-url-input').value='http://localhost:8080/tr/'; runVisualAudit();">⚡ Yerel Proje (8080)</button>
+          <button class="corp-preset-btn" onclick="document.getElementById('visual-audit-url-input').value='http://localhost:8000/tr/'; runVisualAudit();">🏛️ Altın Şablon (8000)</button>
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div id="visual-audit-loading" style="display: none; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 32px; text-align: center;">
+        <div style="display: inline-block; font-size: 2rem; animation: spin 1.2s linear infinite; margin-bottom: 12px;">⚙️</div>
+        <h4 style="color: #fff; margin: 0 0 8px 0; font-size: 1.1rem;">Görsel Zeka Denetimi Çalışıyor...</h4>
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">
+          Chrome headless modda Desktop, Tablet ve Mobil ekranlarında render alıyor, tipografi hiyerarşisi ve renk kontrastları taranıyor...
+        </p>
+      </div>
+
+      <!-- Results Container -->
+      <div id="visual-audit-results" style="display: none; flex-direction: column; gap: 24px;">
+        <!-- Top Score Banner -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+          <!-- Overall Score Card -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+            <div style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">VISUAL QUALITY SCORE</div>
+            <div id="vqa-score-num" style="font-size: 3.5rem; font-weight: 800; color: #8b5cf6; line-height: 1;">--</div>
+            <div id="vqa-tier-badge" style="margin-top: 10px; font-weight: 700; font-size: 1rem; color: #fff; background: rgba(139, 92, 246, 0.2); padding: 4px 14px; border-radius: 9999px; border: 1px solid #8b5cf6;">PROFESSIONAL</div>
+            <div id="vqa-ai-risk-badge" style="margin-top: 10px; font-size: 0.82rem; color: #94a3b8;">AI TEMPLATE RISK: LOW</div>
+          </div>
+
+          <!-- Subscore Progress Bars -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 10px; justify-content: center;">
+            <div id="vqa-subscores-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- Responsive Screenshot Viewer -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <h3 style="color: #fff; font-size: 1.05rem; margin: 0; font-weight: 600;">📱 Çoklu Cihaz Ekran Görüntüleri</h3>
+            <div style="display: flex; gap: 8px;">
+              <button class="tab-btn active" id="vqa-vp-btn-desktop" onclick="switchVisualDevice('desktop')">🖥️ Masaüstü (1440x900)</button>
+              <button class="tab-btn" id="vqa-vp-btn-tablet" onclick="switchVisualDevice('tablet')">📱 Tablet (1024x768)</button>
+              <button class="tab-btn" id="vqa-vp-btn-mobile" onclick="switchVisualDevice('mobile')">📱 Mobil (390x844)</button>
+            </div>
+          </div>
+          <div style="background: #090d16; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; display: flex; justify-content: center; align-items: center; min-height: 380px; max-height: 600px; overflow: auto;">
+            <img id="vqa-screenshot-img" src="" alt="Screenshot" style="max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+          </div>
+        </div>
+
+        <!-- Findings & Proposals (Strictly Proposal Only) -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <h3 style="color: #fff; font-size: 1.05rem; margin: 0; font-weight: 600;">🔍 Tasarım Bulguları & İyileştirme Önerileri</h3>
+              <span class="nav-badge-pill" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8; border: 1px solid #0284c7;">PROPOSAL ONLY</span>
+            </div>
+          </div>
+          <div id="vqa-findings-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
+
+        <!-- Strengths & Recommendations -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px;">
+            <h4 style="color: #10b981; font-size: 0.95rem; margin: 0 0 12px 0;">✨ Güçlü Yönler (Strengths)</h4>
+            <div id="vqa-strengths-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+          </div>
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px;">
+            <h4 style="color: #38bdf8; font-size: 0.95rem; margin: 0 0 12px 0;">💡 Önerilen Aksiyonlar (Recommendations)</h4>
+            <div id="vqa-recommendations-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- Baseline Diff Panel (Conditional) -->
+        <div id="vqa-diff-panel" style="display: none; background: var(--bg-card); border: 1px solid #eab308; border-radius: var(--radius-md); padding: 20px; flex-direction: column; gap: 12px;">
+          <h4 style="color: #eab308; font-size: 1rem; margin: 0;">🔄 Baseline Karşılaştırma Sonucu</h4>
+          <div id="vqa-diff-details" style="font-size: 0.9rem; color: var(--text-main);"></div>
+        </div>
+      </div>
+
+      <!-- Recent Visual Audits History -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+        <h4 style="color: #fff; font-size: 0.95rem; margin: 0;">📜 Son Görsel Denetim Geçmişi</h4>
+        <div id="vqa-history-list" style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="font-size: 0.82rem; color: var(--text-muted);">Henüz geçmiş denetim kaydı bulunmuyor.</div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <script>
@@ -2668,6 +2798,9 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
       const seoHub = document.getElementById('view-seo-hub');
       if (seoHub) seoHub.style.display = tabId === 'seo-hub' ? 'flex' : 'none';
 
+      const vqaView = document.getElementById('view-visual-qa');
+      if (vqaView) vqaView.style.display = tabId === 'visual-qa' ? 'flex' : 'none';
+
       document.getElementById('view-projects').classList.toggle('active', tabId === 'projects');
       document.getElementById('view-explorer').classList.toggle('active', tabId === 'explorer');
       document.getElementById('view-chat').classList.toggle('active', tabId === 'chat');
@@ -2676,6 +2809,9 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
       const activeBtn = document.getElementById('tab-' + tabId + '-btn');
       if (activeBtn) activeBtn.classList.add('active');
 
+      if (tabId === 'visual-qa') {
+        loadVisualAuditHistory();
+      }
       if (tabId === 'seo-hub') {
         switchRadarSubMode(currentRadarMode);
       }
@@ -4513,6 +4649,263 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+    }
+
+    // ======================================================================
+    // VISUAL INTELLIGENCE & QUALITY AUDITOR CLIENT LOGIC (FAZ 71)
+    // ======================================================================
+    let currentVisualAuditResult = null;
+    let currentVisualDevice = 'desktop';
+
+    async function runVisualAudit() {
+      const urlInput = document.getElementById('visual-audit-url-input');
+      const url = urlInput ? urlInput.value.trim() : '';
+      if (!url) {
+        alert('Lütfen geçerli bir web sitesi veya yerel port URL\'si girin.');
+        return;
+      }
+
+      const btn = document.getElementById('btn-run-visual-audit');
+      const loading = document.getElementById('visual-audit-loading');
+      const results = document.getElementById('visual-audit-results');
+
+      if (btn) btn.disabled = true;
+      if (loading) loading.style.display = 'block';
+      if (results) results.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/visual/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        if (data.success && data.audit) {
+          currentVisualAuditResult = data.audit;
+          renderVisualAuditResults(data.audit);
+          loadVisualAuditHistory();
+        } else {
+          alert('Görsel denetim hatası: ' + (data.error || 'Bilinmeyen hata'));
+        }
+      } catch (err) {
+        alert('Sunucu bağlantı hatası: ' + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (loading) loading.style.display = 'none';
+      }
+    }
+
+    function renderVisualAuditResults(audit) {
+      const results = document.getElementById('visual-audit-results');
+      if (!results) return;
+
+      const score = audit.score || {};
+      const numEl = document.getElementById('vqa-score-num');
+      const tierEl = document.getElementById('vqa-tier-badge');
+      const riskEl = document.getElementById('vqa-ai-risk-badge');
+
+      if (numEl) numEl.textContent = score.overallScore !== undefined ? score.overallScore : '--';
+      if (tierEl) tierEl.textContent = score.qualityLevel || 'PROFESSIONAL';
+      if (riskEl) riskEl.textContent = `AI TEMPLATE RISK: ${score.aiTemplateRisk || 'LOW'}`;
+
+      // Subscores progress bars
+      const subContainer = document.getElementById('vqa-subscores-container');
+      if (subContainer && score.subScores) {
+        const labels = [
+          { key: 'professionalism', label: 'Professionalism' },
+          { key: 'visualHierarchy', label: 'Visual Hierarchy' },
+          { key: 'typography', label: 'Typography' },
+          { key: 'color', label: 'Color' },
+          { key: 'spacing', label: 'Spacing' },
+          { key: 'responsive', label: 'Responsive' },
+          { key: 'originality', label: 'Originality' },
+          { key: 'visualConsistency', label: 'Visual Consistency' }
+        ];
+
+        subContainer.innerHTML = labels.map(item => {
+          const val = score.subScores[item.key] !== undefined ? score.subScores[item.key] : 75;
+          const color = val >= 80 ? '#10b981' : (val >= 60 ? '#8b5cf6' : '#ef4444');
+          return `
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
+                <span>${item.label}</span>
+                <span style="font-weight: 600; color: #fff;">${val}</span>
+              </div>
+              <div style="height: 6px; background: var(--bg-surface); border-radius: 3px; overflow: hidden;">
+                <div style="height: 100%; width: ${val}%; background: ${color}; border-radius: 3px; transition: width 0.4s ease;"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Initial screenshot
+      switchVisualDevice('desktop');
+
+      // Render Findings
+      const findingsList = document.getElementById('vqa-findings-list');
+      if (findingsList) {
+        const findings = score.findings || [];
+        if (findings.length === 0) {
+          findingsList.innerHTML = '<div style="color: #10b981; font-size: 0.88rem; padding: 12px; background: rgba(16,185,129,0.08); border-radius: 6px;">Tasarım kurallarına aykırı kritik bir bulgu tespit edilmedi.</div>';
+        } else {
+          const severityColors = {
+            critical: { bg: 'rgba(239, 68, 68, 0.1)', border: '#ef4444', text: '#fca5a5' },
+            high: { bg: 'rgba(249, 115, 22, 0.1)', border: '#f97316', text: '#fdba74' },
+            medium: { bg: 'rgba(234, 179, 8, 0.1)', border: '#eab308', text: '#fde047' },
+            low: { bg: 'rgba(59, 130, 246, 0.1)', border: '#3b82f6', text: '#93c5fd' },
+            info: { bg: 'rgba(148, 163, 184, 0.1)', border: '#94a3b8', text: '#cbd5e1' }
+          };
+
+          findingsList.innerHTML = findings.map(f => {
+            const sc = severityColors[f.severity] || severityColors.medium;
+            return `
+              <div style="background: ${sc.bg}; border: 1px solid ${sc.border}; border-radius: var(--radius-sm); padding: 12px 16px; display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-weight: 700; color: ${sc.text}; font-size: 0.92rem;">${escapeHtml(f.title)}</span>
+                  <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: ${sc.border}; background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 4px;">${f.severity}</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-main);">${escapeHtml(f.description)}</div>
+                ${f.suggestedAction ? `<div style="font-size: 0.8rem; color: var(--text-muted);"><strong style="color: #38bdf8;">Öneri:</strong> ${escapeHtml(f.suggestedAction)}</div>` : ''}
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // Render Strengths
+      const strengthsList = document.getElementById('vqa-strengths-list');
+      if (strengthsList) {
+        const strengths = score.strengths || [];
+        strengthsList.innerHTML = strengths.length ? strengths.map(s => `
+          <div style="font-size: 0.85rem; color: #a7f3d0; background: rgba(16,185,129,0.06); padding: 8px 12px; border-radius: 4px; border-left: 3px solid #10b981;">
+            ✓ ${escapeHtml(s)}
+          </div>
+        `).join('') : '<div style="font-size: 0.82rem; color: var(--text-muted);">Öne çıkan bir güç belirtilmedi.</div>';
+      }
+
+      // Render Recommendations
+      const recsList = document.getElementById('vqa-recommendations-list');
+      if (recsList) {
+        const recs = score.recommendations || [];
+        recsList.innerHTML = recs.length ? recs.map(r => `
+          <div style="font-size: 0.85rem; color: #bae6fd; background: rgba(2,132,199,0.06); padding: 8px 12px; border-radius: 4px; border-left: 3px solid #0284c7;">
+            💡 ${escapeHtml(r)}
+          </div>
+        `).join('') : '<div style="font-size: 0.82rem; color: var(--text-muted);">Aksiyon önerisi bulunmuyor.</div>';
+      }
+
+      results.style.display = 'flex';
+    }
+
+    function switchVisualDevice(device) {
+      currentVisualDevice = device;
+      document.querySelectorAll('#view-visual-qa .tab-btn').forEach(b => {
+        if (b.id && b.id.startsWith('vqa-vp-btn-')) b.classList.remove('active');
+      });
+
+      const activeBtn = document.getElementById('vqa-vp-btn-' + device);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const img = document.getElementById('vqa-screenshot-img');
+      if (!img || !currentVisualAuditResult?.responsive) return;
+
+      const deviceData = currentVisualAuditResult.responsive[device];
+      if (deviceData?.file) {
+        img.src = `/api/visual/image?path=${encodeURIComponent(deviceData.file)}`;
+        img.style.maxWidth = device === 'mobile' ? '390px' : (device === 'tablet' ? '768px' : '100%');
+      }
+    }
+
+    async function saveAsVisualBaseline() {
+      if (!currentVisualAuditResult?.url) {
+        alert('Lütfen önce bir görsel denetim çalıştırın.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/visual/baseline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: currentVisualAuditResult.url })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Mevcut render baseline olarak donduruldu!\nBaseline ID: ${data.baseline.baselineId}`);
+        } else {
+          alert('Baseline kaydetme hatası: ' + data.error);
+        }
+      } catch (err) {
+        alert('Sunucu hatası: ' + err.message);
+      }
+    }
+
+    async function compareWithVisualBaseline() {
+      if (!currentVisualAuditResult?.url) {
+        alert('Lütfen önce bir görsel denetim çalıştırın.');
+        return;
+      }
+
+      const baselineId = prompt('Kıyaslanacak Baseline ID veya boş bırakarak son baseline ile kıyaslayın:');
+      if (baselineId === null) return;
+
+      const diffPanel = document.getElementById('vqa-diff-panel');
+      const diffDetails = document.getElementById('vqa-diff-details');
+
+      try {
+        const res = await fetch('/api/visual/diff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: currentVisualAuditResult.url,
+            baselineId: baselineId || 'latest'
+          })
+        });
+        const data = await res.json();
+        if (data.success && data.diff) {
+          if (diffPanel) diffPanel.style.display = 'flex';
+          if (diffDetails) {
+            const d = data.diff;
+            diffDetails.innerHTML = `
+              <div><strong>Fark Önem Düzeyi:</strong> <span style="text-transform:uppercase; font-weight:700; color:#eab308;">${d.overallSignificance}</span></div>
+              <div><strong>Değişen Maksimum Piksel Oranı:</strong> %${(d.maxChangedRatio * 100).toFixed(1)}</div>
+              <div><strong>Perceptual Mesafe:</strong> ${d.maxPerceptualDist} bit</div>
+            `;
+          }
+        } else {
+          alert('Kıyaslama hatası: ' + (data.error || 'Baseline bulunamadı'));
+        }
+      } catch (err) {
+        alert('Sunucu hatası: ' + err.message);
+      }
+    }
+
+    async function loadVisualAuditHistory() {
+      const container = document.getElementById('vqa-history-list');
+      if (!container) return;
+
+      try {
+        const res = await fetch('/api/visual/history');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.history) && data.history.length > 0) {
+          container.innerHTML = data.history.map(h => `
+            <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('visual-audit-url-input').value='${h.url}'; runVisualAudit();">
+              <div>
+                <span style="font-weight: 600; color: #fff; font-size: 0.88rem;">${escapeHtml(h.url)}</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 10px;">${new Date(h.createdAt).toLocaleTimeString()}</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span style="font-weight: 700; color: #8b5cf6; font-size: 0.95rem;">${h.overallScore}/100</span>
+                <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.2); color: #fff;">${h.qualityLevel}</span>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          container.innerHTML = '<div style="font-size: 0.82rem; color: var(--text-muted);">Henüz geçmiş denetim kaydı bulunmuyor.</div>';
+        }
+      } catch {
+        // fail-soft
+      }
     }
 
     // Initialize corporate taxonomy

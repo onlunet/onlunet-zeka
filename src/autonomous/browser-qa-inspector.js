@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { spawn, exec } from 'node:child_process';
 import http from 'node:http';
 
@@ -28,12 +29,56 @@ export function getBrowserExecutablePath() {
 }
 
 /**
+ * Safely removes a directory with bounded retries for Windows file lock releases.
+ */
+export async function safeRemoveDir(dirPath, maxRetries = 5, delayMs = 100) {
+  if (!dirPath || !fs.existsSync(dirPath)) return true;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      fs.rmSync(dirPath, { recursive: true, force: true });
+      if (!fs.existsSync(dirPath)) {
+        return true;
+      }
+    } catch {
+      if (attempt === maxRetries) {
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, delayMs * attempt));
+    }
+  }
+  return !fs.existsSync(dirPath);
+}
+
+/**
+ * Forcefully terminates a process and all of its child processes.
+ * On Windows: Uses `taskkill /pid <PID> /T /F` to prevent orphan Chrome render/gpu processes.
+ * On POSIX: Uses SIGKILL with fallback.
+ */
+export async function terminateProcessTree(proc) {
+  if (!proc || !proc.pid) return;
+  const pid = proc.pid;
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => {
+      exec(`taskkill /pid ${pid} /T /F`, { windowsHide: true }, () => resolve());
+    });
+  } else {
+    try {
+      proc.kill('SIGKILL');
+    } catch { /* ignore */ }
+  }
+  try {
+    proc.kill('SIGKILL');
+  } catch { /* ignore */ }
+}
+
+/**
  * Find a free TCP port for Chrome remote debugging
  */
 export async function findFreePort(startPort = 9230) {
-  for (let port = startPort; port < startPort + 50; port++) {
+  for (let port = startPort; port < startPort + 100; port++) {
     const isFree = await new Promise((resolve) => {
       const server = http.createServer();
+      server.unref();
       server.listen(port, '127.0.0.1', () => {
         server.close(() => resolve(true));
       });
@@ -49,12 +94,18 @@ export async function findFreePort(startPort = 9230) {
  */
 export async function launchHeadlessBrowser(options = {}) {
   const browserPath = options.browserPath || getBrowserExecutablePath();
-  if (!browserPath) {
-    throw new Error('No supported browser (Google Chrome or Microsoft Edge) found on the system.');
+  if (!browserPath || !fs.existsSync(browserPath)) {
+    throw new Error(`Browser executable not found: ${browserPath}`);
   }
 
-  const debugPort = options.debugPort || await findFreePort();
-  const userDataDir = path.join(process.cwd(), 'temp-chrome-profile-' + debugPort);
+  let debugPort = options.debugPort;
+  if (!debugPort) {
+    const randomOffset = Math.floor(Math.random() * 25) * 2;
+    debugPort = await findFreePort(9230 + randomOffset);
+  }
+
+  const uniqueToken = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const userDataDir = options.userDataDir || path.join(os.tmpdir(), `temp-chrome-profile-${debugPort}-${uniqueToken}`);
 
   const args = [
     '--headless=new',
@@ -64,15 +115,36 @@ export async function launchHeadlessBrowser(options = {}) {
     '--disable-setuid-sandbox',
     '--disable-extensions',
     '--disable-dev-shm-usage',
-    `--user-data-dir=${userDataDir}`
+    `--user-data-dir=${userDataDir}`,
+    ...(options.additionalArgs || [])
   ];
 
   const proc = spawn(browserPath, args, { stdio: 'ignore' });
 
+  // Early exit / crash listener
+  let earlyExitError = null;
+  const onEarlyExit = (code) => {
+    earlyExitError = new Error(`Browser process exited prematurely with code ${code} before CDP ready`);
+  };
+  const onError = (err) => {
+    earlyExitError = err;
+  };
+  proc.once('exit', onEarlyExit);
+  proc.once('error', onError);
+
+  const timeoutMs = options.timeoutMs || 6000;
+  const maxPolls = Math.max(10, Math.floor(timeoutMs / 150));
+
   // Wait for DevTools HTTP API to become ready
   let ready = false;
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < maxPolls; i++) {
+    if (earlyExitError) {
+      break;
+    }
     await new Promise(r => setTimeout(r, 150));
+    if (earlyExitError) {
+      break;
+    }
     try {
       const res = await fetch(`http://127.0.0.1:${debugPort}/json/version`);
       if (res.ok) {
@@ -85,11 +157,11 @@ export async function launchHeadlessBrowser(options = {}) {
   }
 
   if (!ready) {
-    proc.kill();
-    if (fs.existsSync(userDataDir)) {
-      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    }
-    throw new Error(`Browser failed to start CDP on port ${debugPort}`);
+    proc.removeListener('exit', onEarlyExit);
+    proc.removeListener('error', onError);
+    await terminateProcessTree(proc);
+    await safeRemoveDir(userDataDir);
+    throw earlyExitError || new Error(`Browser failed to start CDP on port ${debugPort}`);
   }
 
   return {
@@ -97,13 +169,17 @@ export async function launchHeadlessBrowser(options = {}) {
     debugPort,
     userDataDir,
     close: async () => {
-      try {
-        proc.kill('SIGKILL');
-      } catch { /* ignore */ }
-      await new Promise(r => setTimeout(r, 300));
-      if (fs.existsSync(userDataDir)) {
-        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* ignore */ }
-      }
+      proc.removeListener('exit', onEarlyExit);
+      proc.removeListener('error', onError);
+      await terminateProcessTree(proc);
+      await new Promise(r => setTimeout(r, 150));
+      const cleaned = await safeRemoveDir(userDataDir);
+      return {
+        pid: proc.pid,
+        debugPort,
+        userDataDir,
+        profileCleaned: cleaned
+      };
     }
   };
 }
@@ -125,116 +201,120 @@ export async function auditPageWithCdp(debugPort, url, timeoutMs = 4000) {
   const warnings = [];
   const networkErrors = [];
 
-  const ws = new globalThis.WebSocket(wsUrl);
+  let ws = null;
 
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('WebSocket connection timeout')), 3000);
-    ws.onopen = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    ws.onerror = (e) => {
-      clearTimeout(timer);
-      reject(e);
-    };
-  });
+  try {
+    ws = new globalThis.WebSocket(wsUrl);
 
-  let msgId = 1;
-  const send = (method, params = {}) => {
-    return new Promise((resolve) => {
-      const id = msgId++;
-      const handler = (evt) => {
-        try {
-          const data = JSON.parse(evt.data);
-          if (data.id === id) {
-            ws.removeEventListener('message', handler);
-            resolve(data.result);
-          }
-        } catch { /* ignore */ }
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('WebSocket connection timeout')), 3000);
+      ws.onopen = () => {
+        clearTimeout(timer);
+        resolve();
       };
-      ws.addEventListener('message', handler);
-      ws.send(JSON.stringify({ id, method, params }));
+      ws.onerror = (e) => {
+        clearTimeout(timer);
+        reject(e);
+      };
     });
-  };
 
-  // Event listener for CDP events
-  ws.addEventListener('message', (evt) => {
-    try {
-      const data = JSON.parse(evt.data);
+    let msgId = 1;
+    const send = (method, params = {}) => {
+      return new Promise((resolve) => {
+        const id = msgId++;
+        const handler = (evt) => {
+          try {
+            const data = JSON.parse(evt.data);
+            if (data.id === id) {
+              ws.removeEventListener('message', handler);
+              resolve(data.result);
+            }
+          } catch { /* ignore */ }
+        };
+        ws.addEventListener('message', handler);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    };
 
-      if (data.method === 'Log.entryAdded') {
-        const entry = data.params.entry;
-        if (entry.level === 'error') {
+    // Event listener for CDP events
+    ws.addEventListener('message', (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+
+        if (data.method === 'Log.entryAdded') {
+          const entry = data.params.entry;
+          if (entry.level === 'error') {
+            errors.push({
+              type: 'log_error',
+              message: entry.text,
+              url: entry.url || url,
+              source: entry.source
+            });
+          } else if (entry.level === 'warning') {
+            warnings.push({
+              type: 'log_warning',
+              message: entry.text,
+              url: entry.url || url
+            });
+          }
+        } else if (data.method === 'Runtime.exceptionThrown') {
+          const ex = data.params.exceptionDetails;
           errors.push({
-            type: 'log_error',
-            message: entry.text,
-            url: entry.url || url,
-            source: entry.source
+            type: 'js_exception',
+            message: ex.text || (ex.exception && ex.exception.description) || 'Uncaught JS Exception',
+            url: ex.url || url,
+            lineNumber: ex.lineNumber,
+            columnNumber: ex.columnNumber
           });
-        } else if (entry.level === 'warning') {
-          warnings.push({
-            type: 'log_warning',
-            message: entry.text,
-            url: entry.url || url
-          });
+        } else if (data.method === 'Runtime.consoleAPICalled') {
+          if (data.params.type === 'error') {
+            const text = (data.params.args || []).map(a => a.value || a.description || '').join(' ');
+            errors.push({
+              type: 'console_error',
+              message: text,
+              url
+            });
+          }
+        } else if (data.method === 'Network.responseReceived') {
+          const resp = data.params.response;
+          if (resp.status >= 400) {
+            networkErrors.push({
+              type: 'http_error',
+              status: resp.status,
+              statusText: resp.statusText,
+              url: resp.url
+            });
+          }
         }
-      } else if (data.method === 'Runtime.exceptionThrown') {
-        const ex = data.params.exceptionDetails;
-        errors.push({
-          type: 'js_exception',
-          message: ex.text || (ex.exception && ex.exception.description) || 'Uncaught JS Exception',
-          url: ex.url || url,
-          lineNumber: ex.lineNumber,
-          columnNumber: ex.columnNumber
-        });
-      } else if (data.method === 'Runtime.consoleAPICalled') {
-        if (data.params.type === 'error') {
-          const text = (data.params.args || []).map(a => a.value || a.description || '').join(' ');
-          errors.push({
-            type: 'console_error',
-            message: text,
-            url
-          });
-        }
-      } else if (data.method === 'Network.responseReceived') {
-        const resp = data.params.response;
-        if (resp.status >= 400) {
-          networkErrors.push({
-            type: 'http_error',
-            status: resp.status,
-            statusText: resp.statusText,
-            url: resp.url
-          });
-        }
-      }
-    } catch { /* ignore parse error */ }
-  });
+      } catch { /* ignore parse error */ }
+    });
 
-  // Enable necessary CDP domains
-  await send('Network.enable');
-  await send('Log.enable');
-  await send('Runtime.enable');
-  await send('Page.enable');
+    // Enable necessary CDP domains
+    await send('Network.enable');
+    await send('Log.enable');
+    await send('Runtime.enable');
+    await send('Page.enable');
 
-  // Wait for initial render and network activity
-  await new Promise(r => setTimeout(r, timeoutMs));
+    // Wait for initial render and network activity
+    await new Promise(r => setTimeout(r, timeoutMs));
 
-  try {
-    ws.close();
-  } catch { /* ignore */ }
-
-  // Close the target page to release memory
-  try {
-    await fetch(`http://127.0.0.1:${debugPort}/json/close/${targetId}`);
-  } catch { /* ignore */ }
-
-  return {
-    url,
-    errors,
-    warnings,
-    networkErrors,
-    totalErrors: errors.length + networkErrors.length
-  };
+    return {
+      url,
+      errors,
+      warnings,
+      networkErrors,
+      totalErrors: errors.length + networkErrors.length
+    };
+  } finally {
+    if (ws) {
+      try { ws.close(); } catch { /* ignore */ }
+    }
+    if (targetId) {
+      try {
+        await fetch(`http://127.0.0.1:${debugPort}/json/close/${targetId}`);
+      } catch { /* ignore */ }
+    }
+  }
 }
 
 /**
@@ -428,7 +508,12 @@ export async function runSelfHealingAudit(options = {}) {
   let browserInstance = null;
 
   try {
-    browserInstance = await launchHeadlessBrowser();
+    browserInstance = await launchHeadlessBrowser({
+      debugPort: options.debugPort,
+      userDataDir: options.userDataDir,
+      browserPath: options.browserPath,
+      timeoutMs: options.timeoutMs
+    });
     const debugPort = browserInstance.debugPort;
 
     for (let iteration = 1; iteration <= maxIterations; iteration++) {

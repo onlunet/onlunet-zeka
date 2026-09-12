@@ -1,3 +1,4 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "D:\Antigravity\ONLUNET ZEKA"
+Set FSO = CreateObject("Scripting.FileSystemObject")
+WshShell.CurrentDirectory = FSO.GetParentFolderName(WScript.ScriptFullName)
 WshShell.Run "cmd.exe /c baslat.bat", 0, False

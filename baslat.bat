@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title ONLUNET ZEKA — Baslatiliyor
-cd /d "D:\Antigravity\ONLUNET ZEKA"
+cd /d "%~dp0"
 
 echo ============================================================
 echo ⚡ ONLUNET ZEKA — Otonom Proje & Kod Uretim Merkezi

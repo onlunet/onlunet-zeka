@@ -14,9 +14,11 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn, execSync } from 'node:child_process';
 
+import { PROJECT_ROOT } from '../interfaces/core.js';
 import { ErrorCodes, TaskState } from '../contracts/constants.js';
 import { createProjectWorkspace } from './workspace.js';
 import { createAIGateway, createStandardLocalProvider } from './ai-gateway.js';
@@ -102,11 +104,26 @@ import { scrapeGoogleMapsListing } from '../autonomous/maps-scraper.js';
 import { auditGoogleMapsListing } from '../autonomous/maps-auditor.js';
 import { scrapeWebsiteForSeo } from '../autonomous/seo-scraper.js';
 import { auditWebsiteSeo, autoHealProjectSeo } from '../autonomous/seo-auditor.js';
+import { captureResponsiveViewports, createVisualBaseline, compareWithBaseline } from '../autonomous/visual-baseline.js';
+import { analyzeRenderedUrl } from '../autonomous/visual-analyzer.js';
+import { evaluateVisualDesign } from '../autonomous/visual-critic.js';
+import { computeCompositeVisualScore } from '../autonomous/visual-score-engine.js';
+import { analyzeScreenshot, ANALYSIS_PROFILES } from '../autonomous/visual-intelligence.js';
+import { createDesignProposal, validateDesignProposal } from '../autonomous/visual-proposal-engine.js';
+import { mapFindingsToProposals } from '../autonomous/visual-remediation-policy.js';
+import { executeDesignProposal, rollbackVisualPatch, getAuditLedger } from '../autonomous/visual-refactoring-engine.js';
+import { runVisualRegressionCycle } from '../autonomous/visual-regression-loop.js';
+import { createExecutionAuthorizationContract, AuthorizationDecision } from '../contracts/execution-authorization.js';
 
 const mapsAuditHistory = [];
 const mapsAuditStore = new Map();
 const seoAuditHistory = [];
 const seoAuditStore = new Map();
+const visualAuditHistory = [];
+const visualAuditStore = new Map();
+const visualBaselineStore = new Map();
+const visualProposalStore = new Map();
+const visualExecutionStore = new Map();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -337,7 +354,7 @@ export function createApplicationServer({
     agentRegistry: authoritativeAgentRegistry
   });
   const authoritativeAutonomousEngine = autonomousEngine || createAutonomousLoopEngine({
-    workspaceRoot: process.cwd(),
+    workspaceRoot: PROJECT_ROOT,
     jobEngine: authoritativeEngine,
     providerGateway: authoritativeGateway
   });
@@ -616,7 +633,7 @@ export function createApplicationServer({
       if (req.method === 'POST' && req.url === '/api/corporate/plan') {
         const body = await readBody();
         if (!activeWorkspace) {
-          activeWorkspace = createProjectWorkspace({ rootPath: process.cwd() });
+          activeWorkspace = createProjectWorkspace({ rootPath: PROJECT_ROOT });
         }
         const corporateGen = createCorporateGenerator();
         const synthesis = corporateGen.synthesizeCorporateProject({
@@ -737,7 +754,7 @@ export function createApplicationServer({
       if (req.method === 'POST' && req.url === '/api/corporate/generate') {
         const body = await readBody();
         if (!activeWorkspace) {
-          activeWorkspace = createProjectWorkspace({ rootPath: process.cwd() });
+          activeWorkspace = createProjectWorkspace({ rootPath: PROJECT_ROOT });
         }
 
         let targetPlan = null;
@@ -783,7 +800,7 @@ export function createApplicationServer({
 
       // 3.7 Projects List API
       if (req.method === 'GET' && req.url === '/api/projects') {
-        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
         const projects = listProjects(root);
         return sendJson(200, {
           success: true,
@@ -799,7 +816,7 @@ export function createApplicationServer({
       // 3.8 Start Project API
       if (req.method === 'POST' && req.url === '/api/projects/start') {
         const body = await readBody();
-        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
         const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null);
         if (!projectId) {
           return sendJson(400, { success: false, error: 'projectId veya targetDirectory gereklidir.' });
@@ -845,7 +862,7 @@ export function createApplicationServer({
       // 3.10 Autonomous Browser QA & Console Self-Healing API
       if (req.method === 'POST' && req.url === '/api/projects/browser-audit') {
         const body = await readBody();
-        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
         const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null) || (activeProjectProcess ? activeProjectProcess.projectId : null);
         if (!projectId) {
           return sendJson(400, { success: false, error: 'projectId belirtilmedi veya çalışan aktif bir proje yok.' });
@@ -904,6 +921,141 @@ export function createApplicationServer({
         }
       }
 
+      // 3.10.2 Visual Intelligence & Quality Audit APIs (FAZ 71)
+      if (req.method === 'POST' && req.url === '/api/visual/audit') {
+        const body = await readBody();
+        const url = body.url ? String(body.url).trim() : null;
+        if (!url) {
+          return sendJson(400, { success: false, error: 'url parametresi zorunludur' });
+        }
+
+        try {
+          // 1. Capture responsive viewports (Desktop, Tablet, Mobile)
+          const responsive = await captureResponsiveViewports(url, { timeoutMs: 15000 });
+
+          // 2. Deterministic deep layout/typography/color analysis
+          const deterministic = await analyzeRenderedUrl(url, { viewport: { width: 1440, height: 900 } });
+
+          // 3. AI Visual Critic on Desktop screenshot
+          const desktopCapturePath = responsive.viewports?.desktop?.capture?.filePath;
+          const critic = await evaluateVisualDesign({
+            screenshot: desktopCapturePath,
+            deterministicMetrics: deterministic,
+            providerGateway: authoritativeGateway
+          });
+
+          // 4. Composite Explainable Scoring
+          const scoreReport = computeCompositeVisualScore({
+            deterministicMetrics: deterministic,
+            criticEvaluation: critic
+          });
+
+          const auditId = `va-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const auditRecord = {
+            id: auditId,
+            url,
+            createdAt: new Date().toISOString(),
+            responsive: {
+              desktop: { file: responsive.viewports?.desktop?.capture?.filePath, width: 1440, height: 900 },
+              tablet: { file: responsive.viewports?.tablet?.capture?.filePath, width: 1024, height: 768 },
+              mobile: { file: responsive.viewports?.mobile?.capture?.filePath, width: 390, height: 844 }
+            },
+            deterministic,
+            critic,
+            score: scoreReport
+          };
+
+          visualAuditStore.set(auditId, auditRecord);
+          visualAuditHistory.unshift({
+            id: auditId,
+            url,
+            overallScore: scoreReport.overallScore,
+            qualityLevel: scoreReport.qualityLevel,
+            aiTemplateRisk: scoreReport.aiTemplateRisk,
+            createdAt: auditRecord.createdAt
+          });
+          if (visualAuditHistory.length > 20) visualAuditHistory.pop();
+
+          return sendJson(200, {
+            success: true,
+            audit: auditRecord
+          });
+        } catch (err) {
+          return sendJson(500, { success: false, error: err.message });
+        }
+      }
+
+      if (req.method === 'GET' && req.url === '/api/visual/history') {
+        return sendJson(200, {
+          success: true,
+          history: visualAuditHistory
+        });
+      }
+
+      if (req.method === 'POST' && req.url === '/api/visual/baseline') {
+        const body = await readBody();
+        const url = body.url ? String(body.url).trim() : null;
+        if (!url) {
+          return sendJson(400, { success: false, error: 'url parametresi zorunludur' });
+        }
+
+        try {
+          const baseline = await createVisualBaseline(url, { baselineId: body.baselineId });
+          visualBaselineStore.set(baseline.baselineId, baseline);
+          return sendJson(200, { success: true, baseline });
+        } catch (err) {
+          return sendJson(500, { success: false, error: err.message });
+        }
+      }
+
+      if (req.method === 'POST' && req.url === '/api/visual/diff') {
+        const body = await readBody();
+        const url = body.url ? String(body.url).trim() : null;
+        const baselineId = body.baselineId ? String(body.baselineId).trim() : null;
+        if (!url || !baselineId) {
+          return sendJson(400, { success: false, error: 'url ve baselineId zorunludur' });
+        }
+
+        const baseline = visualBaselineStore.get(baselineId);
+        if (!baseline) {
+          return sendJson(404, { success: false, error: `Baseline bulunamadı: ${baselineId}` });
+        }
+
+        try {
+          const diffResult = await compareWithBaseline(url, baseline.manifestPath);
+          return sendJson(200, { success: true, diff: diffResult });
+        } catch (err) {
+          return sendJson(500, { success: false, error: err.message });
+        }
+      }
+
+      if (req.method === 'GET' && req.url.startsWith('/api/visual/image')) {
+        const parsedUrl = new URL(req.url, 'http://localhost');
+        const filePath = parsedUrl.searchParams.get('path');
+        if (!filePath) {
+          return sendJson(400, { success: false, error: 'path zorunludur' });
+        }
+
+        const normalized = path.normalize(filePath);
+        // Security check: Must reside within os.tmpdir() and end with .png
+        const tmp = path.normalize(os.tmpdir());
+        if (!normalized.startsWith(tmp) || !normalized.endsWith('.png') || !fs.existsSync(normalized)) {
+          return sendJson(403, { success: false, error: 'Görsel erişim engellendi veya dosya bulunamadı' });
+        }
+
+        try {
+          const imgBuf = fs.readFileSync(normalized);
+          res.writeHead(200, {
+            'Content-Type': 'image/png',
+            'Content-Length': imgBuf.length,
+            'Cache-Control': 'no-cache'
+          });
+          return res.end(imgBuf);
+        } catch (readErr) {
+          return sendJson(500, { success: false, error: readErr.message });
+        }
+      }
+
       // 3.11 AI Cost & Quota Telemetry API
       if (req.method === 'GET' && req.url === '/api/ai/cost-telemetry') {
         const summary = authoritativeBudget ? authoritativeBudget.getSummary() : { totalTokens: 0, cumulativeCostUsd: 0 };
@@ -929,7 +1081,7 @@ export function createApplicationServer({
       // 3.12 Multi-Agent Project Task Dispatcher API
       if (req.method === 'POST' && req.url === '/api/projects/dispatch-task') {
         const body = await readBody();
-        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
         const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null);
         const taskPrompt = (body.prompt || body.taskPrompt || '').trim();
 
@@ -1135,7 +1287,7 @@ export function createApplicationServer({
           try {
             const urlObj = new URL(targetUrl);
             const targetPort = urlObj.port ? Number(urlObj.port) : (urlObj.protocol === 'https:' ? 443 : 80);
-            const projDir = path.resolve(process.cwd(), 'projeler');
+            const projDir = path.resolve(PROJECT_ROOT, 'projeler');
 
             if (fs.existsSync(projDir)) {
               const entries = fs.readdirSync(projDir, { withFileTypes: true });
@@ -1336,13 +1488,281 @@ export function createApplicationServer({
           return sendJson(404, { success: false, error: 'Denetim kaydı bulunamadı.' });
         }
 
-        const projectDir = path.resolve(process.cwd(), 'projeler', projectSlug);
+        const projectDir = path.resolve(PROJECT_ROOT, 'projeler', projectSlug);
         const healResult = await autoHealProjectSeo(projectDir, record.aiPackage);
 
         return sendJson(200, {
           success: healResult.success,
           modifications: healResult.modifications,
           message: healResult.message
+        });
+      }
+
+      // FAZ 71: Visual Intelligence & AI Visual Critic Boundary
+      // POST /api/v1/visual/analyze - Deep visual screenshot & layout analysis
+      if (req.method === 'POST' && (req.url === '/api/v1/visual/analyze' || req.url === '/api/visual/analyze')) {
+        try {
+          const body = await readBody();
+          const targetUrl = body.url || body.pageUrl || null;
+          const imagePath = body.imagePath || null;
+          const imageBase64 = body.imageBase64 || null;
+
+          if (!targetUrl && !imagePath && !imageBase64) {
+            return sendJson(400, {
+              success: false,
+              error: 'En az bir görsel (imagePath/imageBase64) veya erişilebilir web sitesi URL adresi belirtilmelidir.'
+            });
+          }
+
+          const auditId = `vis-${Date.now()}`;
+          const analysis = await analyzeScreenshot({
+            imagePath,
+            imageBase64,
+            pageUrl: targetUrl,
+            viewport: body.viewport,
+            pageType: body.pageType || 'corporate',
+            analysisProfile: body.analysisProfile || body.profile || 'corporate',
+            model: body.model,
+            timeoutMs: body.timeoutMs || 15000,
+            providerGateway: aiGateway
+          });
+
+          const historyRecord = {
+            id: auditId,
+            url: targetUrl || 'Screenshot Analysis',
+            overallScore: analysis.overallScore,
+            qualityLevel: analysis.qualityLevel,
+            aiTemplateRisk: analysis.aiTemplateRisk,
+            profile: analysis.profile,
+            analysisMode: analysis.analysisMode,
+            timestamp: analysis.analyzedAt
+          };
+
+          visualAuditHistory.unshift(historyRecord);
+          if (visualAuditHistory.length > 25) visualAuditHistory.pop();
+          visualAuditStore.set(auditId, { id: auditId, ...analysis, url: targetUrl });
+
+          return sendJson(200, {
+            success: true,
+            id: auditId,
+            analysis
+          });
+        } catch (err) {
+          return sendJson(400, {
+            success: false,
+            error: err.message
+          });
+        }
+      }
+
+      // GET /api/visual/history - Retrieve visual audit history
+      if (req.method === 'GET' && req.url === '/api/visual/history') {
+        return sendJson(200, {
+          success: true,
+          history: visualAuditHistory
+        });
+      }
+
+      // GET /api/visual/profiles - List available analysis profiles
+      if (req.method === 'GET' && req.url === '/api/visual/profiles') {
+        return sendJson(200, {
+          success: true,
+          profiles: ANALYSIS_PROFILES
+        });
+      }
+
+      // FAZ 72: Controlled Visual Refactoring & Design System Token Sync Endpoints
+      // POST /api/v1/visual/proposals - Generate structured proposals from an analysis
+      if (req.method === 'POST' && (req.url === '/api/v1/visual/proposals' || req.url === '/api/visual/proposals')) {
+        try {
+          const body = await readBody();
+          let analysis = body.analysis || null;
+          if (!analysis && body.analysisId) {
+            analysis = visualAuditStore.get(body.analysisId);
+          }
+          if (!analysis) {
+            return sendJson(400, { success: false, error: 'Analiz verisi (analysis veya analysisId) gereklidir.' });
+          }
+
+          const targetFilePath = body.targetFilePath || 'src/app/public/index.html';
+          const workspaceRoot = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
+          const resolvedPath = path.isAbsolute(targetFilePath) ? targetFilePath : path.resolve(workspaceRoot, targetFilePath);
+          let cssText = body.cssText || '';
+          if (!cssText && fs.existsSync(resolvedPath)) {
+            cssText = fs.readFileSync(resolvedPath, 'utf8');
+          }
+
+          const proposals = mapFindingsToProposals({
+            analysis,
+            cssText,
+            targetFilePath,
+            projectId: body.projectId || 'default'
+          });
+
+          for (const prop of proposals) {
+            visualProposalStore.set(prop.proposalId, prop);
+          }
+
+          return sendJson(200, {
+            success: true,
+            count: proposals.length,
+            proposals
+          });
+        } catch (err) {
+          return sendJson(400, { success: false, error: err.message });
+        }
+      }
+
+      // GET /api/v1/visual/proposals - List all generated proposals
+      if (req.method === 'GET' && (req.url === '/api/v1/visual/proposals' || req.url === '/api/visual/proposals')) {
+        return sendJson(200, {
+          success: true,
+          proposals: Array.from(visualProposalStore.values())
+        });
+      }
+
+      // GET /api/v1/visual/proposals/:id - Get single proposal
+      if (req.method === 'GET' && req.url.startsWith('/api/v1/visual/proposals/')) {
+        const id = req.url.slice('/api/v1/visual/proposals/'.length).split('?')[0].split('/')[0];
+        const proposal = visualProposalStore.get(id);
+        if (!proposal) {
+          return sendJson(404, { success: false, error: `Proposal bulunamadı: ${id}` });
+        }
+        return sendJson(200, { success: true, proposal });
+      }
+
+      // POST /api/v1/visual/proposals/:id/validate - Validate schema and stale state
+      if (req.method === 'POST' && req.url.includes('/proposals/') && req.url.endsWith('/validate')) {
+        try {
+          const parts = req.url.split('/');
+          const id = parts[parts.indexOf('proposals') + 1];
+          const proposal = visualProposalStore.get(id);
+          if (!proposal) {
+            return sendJson(404, { success: false, error: `Proposal bulunamadı: ${id}` });
+          }
+
+          validateDesignProposal(proposal);
+          const workspaceRoot = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
+          const resolvedTarget = path.isAbsolute(proposal.targetFilePath)
+            ? proposal.targetFilePath
+            : path.resolve(workspaceRoot, proposal.targetFilePath);
+
+          let isStale = false;
+          if (fs.existsSync(resolvedTarget)) {
+            const currentContent = fs.readFileSync(resolvedTarget, 'utf8');
+            for (const change of proposal.changes) {
+              const match = verifyTokenMatches(currentContent, change.target, change.before);
+              if (!match.matches) {
+                isStale = true;
+                break;
+              }
+            }
+          }
+
+          return sendJson(200, {
+            success: true,
+            proposalId: id,
+            valid: true,
+            isStale
+          });
+        } catch (err) {
+          return sendJson(400, { success: false, error: err.message });
+        }
+      }
+
+      // POST /api/v1/visual/proposals/:id/authorize - Authorize a proposal for execution
+      if (req.method === 'POST' && req.url.includes('/proposals/') && req.url.endsWith('/authorize')) {
+        try {
+          const parts = req.url.split('/');
+          const id = parts[parts.indexOf('proposals') + 1];
+          const proposal = visualProposalStore.get(id);
+          if (!proposal) {
+            return sendJson(404, { success: false, error: `Proposal bulunamadı: ${id}` });
+          }
+
+          const body = await readBody();
+          const authContract = createExecutionAuthorizationContract({
+            id: `auth-prop-${Date.now()}`,
+            requestId: `req-prop-${id}`,
+            taskId: `task-refactor-${id}`,
+            planId: `plan-refactor-${id}`,
+            admissionId: `adm-${Date.now()}`,
+            handoffId: `hand-${Date.now()}`,
+            decision: AuthorizationDecision.AUTHORIZED,
+            reason: body.reason || 'Human operator approved design token refactoring proposal',
+            authorizedContext: {
+              workingDirectory: activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT,
+              expectedCommands: []
+            }
+          });
+
+          return sendJson(200, {
+            success: true,
+            proposalId: id,
+            authorization: authContract
+          });
+        } catch (err) {
+          return sendJson(400, { success: false, error: err.message });
+        }
+      }
+
+      // POST /api/v1/visual/proposals/:id/execute - Execute authorized proposal with regression guard
+      if (req.method === 'POST' && req.url.includes('/proposals/') && req.url.endsWith('/execute')) {
+        try {
+          const parts = req.url.split('/');
+          const id = parts[parts.indexOf('proposals') + 1];
+          const proposal = visualProposalStore.get(id);
+          if (!proposal) {
+            return sendJson(404, { success: false, error: `Proposal bulunamadı: ${id}` });
+          }
+
+          const body = await readBody();
+          const authorization = body.authorization;
+          if (!authorization || authorization.decision !== AuthorizationDecision.AUTHORIZED) {
+            return sendJson(403, {
+              success: false,
+              error: 'Yetkisiz çalıştırma engellendi (UNAUTHORIZED). Geçerli bir authorization sözleşmesi gereklidir.'
+            });
+          }
+
+          const workspaceRoot = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
+          const cycleResult = await runVisualRegressionCycle({
+            proposal,
+            authorization,
+            workspaceRoot,
+            targetFilePath: proposal.targetFilePath,
+            pageUrl: body.url || null,
+            beforeAudit: body.beforeAudit || null
+          });
+
+          visualExecutionStore.set(id, cycleResult);
+
+          return sendJson(200, {
+            success: true,
+            proposalId: id,
+            result: cycleResult
+          });
+        } catch (err) {
+          return sendJson(400, { success: false, error: err.message });
+        }
+      }
+
+      // GET /api/v1/visual/proposals/:id/result - Retrieve execution & regression result
+      if (req.method === 'GET' && req.url.includes('/proposals/') && req.url.endsWith('/result')) {
+        const parts = req.url.split('/');
+        const id = parts[parts.indexOf('proposals') + 1];
+        const result = visualExecutionStore.get(id);
+        if (!result) {
+          return sendJson(404, { success: false, error: `Sonuç bulunamadı: ${id}` });
+        }
+        return sendJson(200, { success: true, result });
+      }
+
+      // GET /api/v1/visual/audit-ledger - Query visual refactoring audit ledger
+      if (req.method === 'GET' && (req.url === '/api/v1/visual/audit-ledger' || req.url === '/api/visual/audit-ledger')) {
+        return sendJson(200, {
+          success: true,
+          ledger: getAuditLedger()
         });
       }
 
@@ -1819,7 +2239,7 @@ export function createApplicationServer({
           throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
         }
         const workspaceId = body.workspaceId || callerWorkspace;
-        const workspaceRoot = workspaceId || (activeWorkspace ? activeWorkspace.rootPath : process.cwd());
+        const workspaceRoot = workspaceId || (activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT);
 
         const bridgeResult = executeAdmittedBridge({
           executionId: body.executionId,
@@ -2663,7 +3083,7 @@ export function createApplicationServer({
 // Allow direct standalone run
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const fs = await import('fs');
-  const logFile = path.resolve('C:/Users/OnluN/.gemini/antigravity/brain/31a7db48-0b66-4f5c-b95f-d48b90b3c4c8/scratch/server_debug.log');
+  const logFile = path.join(os.tmpdir(), 'onlunet_server_debug.log');
 
   function debugLog(msg) {
     const line = `[${new Date().toISOString()}] ${msg}\n`;

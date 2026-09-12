@@ -29,6 +29,10 @@ projects/
 projeler/
 scratch/
 
+# Visual Captures & Temporary Certification
+onlunet-visual-captures/
+.temp-certification/
+
 # Local Backup & OS Artifacts
 *.bak
 .DS_Store
