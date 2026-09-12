@@ -1,0 +1,2698 @@
+/**
+ * ONLUNET ZEKA - Standalone Application Server & HTTP Boundary
+ * Phase 13 Foundation, Phase 13.1 Security Remediation & Phase 18 Controlled Change Application
+ *
+ * Provides a self-hosted HTTP server delivering:
+ * 1. Embedded Visual Workspace & Task Execution UI (No VS Code, Antigravity, or Codex required)
+ * 2. Workspace Management API (/api/workspace)
+ * 3. AI Gateway Natural Language Planning API (/api/plan)
+ * 4. Controlled Execution Pipeline API (/api/execute)
+ * 5. Controlled File Mutation API (/api/mutate)
+ *
+ * ZERO EXTERNAL DEPENDENCIES: Native node:http, node:fs, node:path.
+ */
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn, execSync } from 'node:child_process';
+
+import { ErrorCodes, TaskState } from '../contracts/constants.js';
+import { createProjectWorkspace } from './workspace.js';
+import { createAIGateway, createStandardLocalProvider } from './ai-gateway.js';
+import { assembleAdvisoryContext } from './task-understanding.js';
+import { runApplicationPipeline } from './orchestration-runner.js';
+import { createExecutionPlanContract } from '../contracts/execution-plan.js';
+import { executeAuthorizedFileMutation } from '../contracts/file-mutation.js';
+import { createTask } from '../contracts/domain.js';
+import { createApproval } from '../contracts/domain.js';
+import { evaluateExecutionPreflight } from '../contracts/preflight.js';
+import { createExecutionHandoffContract } from '../contracts/handoff.js';
+import { consumeExecutionHandoff } from '../contracts/runtime-boundary.js';
+import { authorizeExecutionRequest } from '../contracts/execution-authorization.js';
+import { createValidation } from '../contracts/domain.js';
+import { ValidationResult } from '../contracts/constants.js';
+import { evaluatePostExecutionValidation } from '../contracts/orchestrator.js';
+import {
+  createScopePolicy,
+  createExecutionPolicy,
+  createSecurityPolicy,
+  createApprovalPolicy
+} from '../policies/policies.js';
+import { createJobEngine } from '../contracts/job-engine.js';
+import { createWorkUnit, admitWorkUnit, executeWorkUnit } from '../contracts/work-unit.js';
+import { createAutonomousPolicyContract, evaluateAutonomousPolicy } from '../contracts/autonomous-policy.js';
+import { createAIProviderContract, normalizeAIProposal, validateAIProposal } from '../contracts/ai-proposal.js';
+import { createAgentRegistry, createAgentDefinition } from '../contracts/agent-registry.js';
+import { createTaskDefinition, routeTask } from '../contracts/task-routing.js';
+import { createAgentProposal, validateAgentProposal } from '../contracts/agent-proposal.js';
+import { createInvocationRequest, invokeAIProvider } from '../contracts/provider-invocation.js';
+import {
+  createMultiAgentOrchestrationPlan,
+  composeOrchestrationPlan,
+  MultiAgentPlanStatus
+} from '../contracts/multi-agent-orchestration.js';
+import {
+  aggregateAndReviewProposals,
+  ProposalReviewStatus
+} from '../contracts/proposal-review.js';
+import {
+  evaluateApprovalAdmission,
+  AdmissionStatus
+} from '../contracts/approval-admission.js';
+import {
+  executeAdmittedBridge,
+  ExecutionBridgeStatus
+} from '../contracts/execution-bridge.js';
+import {
+  verifyExecutionResult,
+  VerificationStatus
+} from '../contracts/execution-verification.js';
+import {
+  orchestrateProjectVerification,
+  createProjectVerificationPlan,
+  ProjectVerificationStatus
+} from '../contracts/project-verification.js';
+import {
+  orchestrateSelfCorrection,
+  createCorrectionProposal,
+  analyzeFailureEvidence,
+  CorrectionStatus,
+  MAX_CORRECTION_CYCLES
+} from '../contracts/self-correction.js';
+import { createProviderRegistry } from '../providers/provider-registry.js';
+import { createProviderGateway } from '../providers/provider-gateway.js';
+import { createMultiAgentExecutor } from '../orchestration/multi-agent-executor.js';
+import { createBudgetTracker } from '../providers/cost-tracker.js';
+import { createAutonomousLoopEngine } from '../autonomous/autonomous-loop-engine.js';
+import { sanitizeString, sanitizeFilePath } from '../providers/credential-sanitizer.js';
+import { createAIControlPlane } from '../control-plane/control-plane.js';
+import { createAIExecutionPipeline } from '../control-plane/ai-execution-pipeline.js';
+import { createModelRegistry } from '../providers/model-registry.js';
+import { createRoutingEngine } from '../providers/routing-engine.js';
+import { ProviderCapabilities } from '../providers/provider-capabilities.js';
+import { createRoutingTelemetry } from '../providers/routing-telemetry.js';
+import { createProjectGenerator, TemplateMetadata } from '../autonomous/project-generator.js';
+import { createCorporateGenerator, CorporatePalettes } from '../autonomous/corporate-generator.js';
+import { inspectAndModernizeWebsite } from '../autonomous/site-extractor.js';
+import { inspectAndModernizeGoogleMaps } from '../autonomous/maps-to-corporate.js';
+import { runSelfHealingAudit } from '../autonomous/browser-qa-inspector.js';
+import { runAgentSquadTask } from '../orchestration/agent-squad-runner.js';
+import { scrapeGoogleMapsListing } from '../autonomous/maps-scraper.js';
+import { auditGoogleMapsListing } from '../autonomous/maps-auditor.js';
+import { scrapeWebsiteForSeo } from '../autonomous/seo-scraper.js';
+import { auditWebsiteSeo, autoHealProjectSeo } from '../autonomous/seo-auditor.js';
+
+const mapsAuditHistory = [];
+const mapsAuditStore = new Map();
+const seoAuditHistory = [];
+const seoAuditStore = new Map();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// ======================================================================
+// ACTIVE CORPORATE PROJECT RUNTIME MANAGER (Phase 67)
+// ======================================================================
+let activeProjectProcess = null;
+
+function isPidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function freePort(port = 8080) {
+  if (Number(port) === 8000) {
+    return;
+  }
+  try {
+    if (process.platform === 'win32') {
+      let out = '';
+      try {
+        out = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf8' });
+      } catch {
+        return;
+      }
+      const lines = out.trim().split('\n');
+      for (const line of lines) {
+        if (!line.includes('LISTENING')) continue;
+        const parts = line.trim().split(/\s+/);
+        const localAddr = parts[1] || '';
+        if (localAddr.endsWith(`:${port}`)) {
+          const pid = parts[parts.length - 1];
+          if (pid && Number(pid) > 0 && Number(pid) !== process.pid) {
+            try {
+              execSync(`taskkill /F /PID ${pid} >nul 2>&1`);
+            } catch {}
+          }
+        }
+      }
+    } else {
+      try {
+        const out = execSync(`lsof -ti :${port}`, { encoding: 'utf8' });
+        const pids = out.trim().split('\n');
+        for (const pid of pids) {
+          if (pid && Number(pid) !== process.pid) {
+            try { process.kill(Number(pid), 'SIGKILL'); } catch {}
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+function stopRunningProject() {
+  if (activeProjectProcess) {
+    try {
+      if (activeProjectProcess.pid && Number(activeProjectProcess.pid) !== process.pid && isPidAlive(activeProjectProcess.pid)) {
+        if (process.platform === 'win32') {
+          execSync(`taskkill /F /PID ${activeProjectProcess.pid} >nul 2>&1`);
+        } else {
+          process.kill(activeProjectProcess.pid, 'SIGKILL');
+        }
+      }
+    } catch {}
+    const prevPort = activeProjectProcess.port;
+    activeProjectProcess = null;
+    if (prevPort) freePort(prevPort);
+  }
+}
+
+function startProjectServer(targetDir, port = 8080) {
+  if (Number(port) === 8000) port = 8080;
+  stopRunningProject();
+  freePort(port);
+
+  const serverScript = path.join(targetDir, 'scripts', 'server.js');
+  if (!fs.existsSync(serverScript)) {
+    return { success: false, error: `Sunucu betiği bulunamadı: ${serverScript}` };
+  }
+
+  try {
+    const child = spawn(process.execPath, ['scripts/server.js'], {
+      cwd: targetDir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: 'ignore',
+      detached: true
+    });
+    child.unref();
+
+    const projectId = path.basename(targetDir);
+    activeProjectProcess = {
+      projectId,
+      targetDir,
+      pid: child.pid,
+      port,
+      startedAt: new Date().toISOString()
+    };
+
+    child.on('exit', () => {
+      if (activeProjectProcess && activeProjectProcess.pid === child.pid) {
+        activeProjectProcess = null;
+      }
+    });
+
+    return {
+      success: true,
+      projectId,
+      port,
+      url: `http://localhost:${port}/tr/`,
+      adminUrl: `http://localhost:${port}/admin/login`
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function listProjects(workspaceRoot) {
+  const projDir = path.resolve(workspaceRoot, 'projeler');
+  if (!fs.existsSync(projDir)) {
+    return [];
+  }
+
+  const entries = fs.readdirSync(projDir, { withFileTypes: true });
+  const projects = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(projDir, entry.name);
+    const serverJs = path.join(fullPath, 'scripts', 'server.js');
+    if (!fs.existsSync(serverJs)) continue;
+
+    const projectJsonPath = path.join(fullPath, 'project.json');
+    let metadata = {
+      id: entry.name,
+      name: entry.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      industry: 'Kurumsal',
+      theme: 'blue',
+      port: 8080,
+      createdAt: null
+    };
+
+    if (fs.existsSync(projectJsonPath)) {
+      try {
+        const pj = JSON.parse(fs.readFileSync(projectJsonPath, 'utf-8'));
+        metadata = { ...metadata, ...pj };
+      } catch {}
+    } else {
+      const tfPath = path.join(fullPath, 'scripts', 'tailored-frontend.js');
+      if (fs.existsSync(tfPath)) {
+        try {
+          const content = fs.readFileSync(tfPath, 'utf-8');
+          const nameMatch = content.match(/companyName:\s*['"]([^'"]+)['"]/);
+          if (nameMatch) metadata.name = nameMatch[1];
+        } catch {}
+      }
+    }
+
+    const stat = fs.statSync(fullPath);
+    if (!metadata.createdAt) {
+      metadata.createdAt = stat.birthtime.toISOString();
+    }
+
+    const isRunning = Boolean(
+      activeProjectProcess &&
+      isPidAlive(activeProjectProcess.pid) &&
+      (activeProjectProcess.projectId === entry.name || path.resolve(activeProjectProcess.targetDir) === path.resolve(fullPath))
+    );
+
+    const resolvedPort = Number(metadata.port) || 8080;
+    projects.push({
+      ...metadata,
+      id: entry.name,
+      targetDirectory: path.relative(workspaceRoot, fullPath).replace(/\\/g, '/'),
+      isRunning,
+      port: resolvedPort,
+      url: `http://localhost:${resolvedPort}/tr/`,
+      adminUrl: `http://localhost:${resolvedPort}/admin/login`
+    });
+  }
+
+  projects.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  return projects;
+}
+
+export function createApplicationServer({
+  aiGateway = createAIGateway({ providerAdapter: createStandardLocalProvider() }),
+  pipelineRunner = runApplicationPipeline,
+  jobEngine = null,
+  agentRegistry = null,
+  providerAdapter = null,
+  providerRegistry = null,
+  providerGateway = null,
+  multiAgentExecutor = null,
+  budgetTracker = null,
+  autonomousEngine = null,
+  controlPlane = null,
+  modelRegistry = null,
+  routingEngine = null,
+  routingTelemetry = null,
+  executionPipeline = null
+} = {}) {
+  // Authoritative State held securely in application server memory / job engine
+  const authoritativeEngine = jobEngine || createJobEngine();
+  const authoritativeAgentRegistry = agentRegistry || createAgentRegistry();
+  const authoritativeProvider = providerAdapter || (aiGateway && aiGateway.providerAdapter ? aiGateway.providerAdapter : createStandardLocalProvider());
+  const authoritativeProviderRegistry = providerRegistry || createProviderRegistry();
+  const authoritativeBudget = budgetTracker || createBudgetTracker();
+  const authoritativeModelRegistry = modelRegistry || createModelRegistry();
+  const authoritativeTelemetry = routingTelemetry || createRoutingTelemetry();
+  const authoritativeGateway = providerGateway || createProviderGateway({
+    registry: authoritativeProviderRegistry,
+    budgetTracker: authoritativeBudget
+  });
+  const authoritativeRoutingEngine = routingEngine || createRoutingEngine({
+    registry: authoritativeProviderRegistry,
+    modelRegistry: authoritativeModelRegistry,
+    telemetry: authoritativeTelemetry
+  });
+  const authoritativeExecutor = multiAgentExecutor || createMultiAgentExecutor({
+    providerGateway: authoritativeGateway,
+    agentRegistry: authoritativeAgentRegistry
+  });
+  const authoritativeAutonomousEngine = autonomousEngine || createAutonomousLoopEngine({
+    workspaceRoot: process.cwd(),
+    jobEngine: authoritativeEngine,
+    providerGateway: authoritativeGateway
+  });
+  const authoritativePipeline = executionPipeline || createAIExecutionPipeline({
+    registry: authoritativeProviderRegistry,
+    modelRegistry: authoritativeModelRegistry,
+    routingEngine: authoritativeRoutingEngine,
+    gateway: authoritativeGateway,
+    budgetTracker: authoritativeBudget
+  });
+
+  const authoritativeControlPlane = controlPlane || createAIControlPlane({
+    registry: authoritativeProviderRegistry,
+    gateway: authoritativeGateway
+  });
+
+  let activeWorkspace = null;
+  // DEF-01 Remediation: legacyActivePlan is ONLY a non-authoritative fallback for legacy tests
+  // that do not provide a jobId. All Job-scoped executions and mutations strictly resolve plans
+  // from authoritativeEngine.getJobPlan(jobId).
+  let legacyActivePlan = null;
+
+  const server = http.createServer(async (req, res) => {
+    // Helper to send JSON response
+    const sendJson = (statusCode, data) => {
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+    };
+
+    const MAX_BODY_SIZE = 5 * 1024 * 1024; // 5MB
+    // Helper to read and parse JSON body
+    const readBody = () => new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => {
+        data += chunk;
+        if (data.length > MAX_BODY_SIZE) {
+          req.destroy();
+          reject(new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Request body size exceeds limit of ${MAX_BODY_SIZE} bytes`));
+        }
+      });
+      req.on('end', () => {
+        try {
+          if (!data) return resolve({});
+          if (/"__proto__"\s*:/i.test(data) || (/"constructor"\s*:/i.test(data) && /"prototype"\s*:/i.test(data))) {
+            return reject(new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Prototype pollution attempt detected in request payload`));
+          }
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error(`[${ErrorCodes.INVALID_CONTRACT}] Invalid JSON body: ${e.message}`));
+        }
+      });
+      req.on('error', reject);
+    });
+
+    try {
+      // 1. Static UI serving
+      if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+        const htmlPath = path.join(PUBLIC_DIR, 'index.html');
+        if (fs.existsSync(htmlPath)) {
+          const html = fs.readFileSync(htmlPath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          return res.end(html);
+        }
+      }
+
+      // 2. Workspace Management API
+      if (req.method === 'POST' && req.url === '/api/workspace') {
+        const body = await readBody();
+        const rootPath = body.rootPath;
+        if (!rootPath || typeof rootPath !== 'string' || rootPath.trim() === '') {
+          throw new Error(`[${ErrorCodes.INVALID_CONTRACT}] ProjectWorkspace requires valid rootPath`);
+        }
+        activeWorkspace = createProjectWorkspace({ rootPath });
+        legacyActivePlan = null; // Invalidate legacy plan on workspace change
+        const files = activeWorkspace.listFiles();
+        return sendJson(200, {
+          success: true,
+          workspace: {
+            name: activeWorkspace.name,
+            rootPath: activeWorkspace.rootPath
+          },
+          files
+        });
+      }
+
+      // 3. AI Plan API
+      if (req.method === 'POST' && req.url === '/api/plan') {
+        const body = await readBody();
+        if (!activeWorkspace) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] No active workspace selected. Please select a workspace first.`);
+        }
+
+        // Phase 30 & 32: Assemble bounded, deterministic, immutable, advisory-only context
+        const discoveredFiles = activeWorkspace.listFiles ? activeWorkspace.listFiles() : [];
+        const advisoryContext = assembleAdvisoryContext({
+          workspace: activeWorkspace,
+          taskPrompt: body.task,
+          discoveredFiles,
+          includeContent: true
+        });
+
+        const planProposal = await aiGateway.analyzeAndPlan({
+          taskPrompt: body.task,
+          workspaceSummary: activeWorkspace,
+          advisoryContext
+        });
+
+        // Construct authoritative ExecutionPlanContract (Phase 3)
+        const basePlan = createExecutionPlanContract({
+          id: `plan-${Date.now()}`,
+          taskId: `task-${Date.now()}`,
+          expectedCommands: planProposal.proposedCommands,
+          expectedFileChanges: planProposal.proposedFileChanges,
+          risk: planProposal.riskLevel || 'LOW'
+        });
+
+        // Phase 19: Authoritative change content binding (declarative immutable mutations map)
+        // Phase 20: Explicit workspaceRoot binding to authoritative plan
+        const generatedPlan = Object.freeze({
+          ...basePlan,
+          workspaceRoot: activeWorkspace.rootPath,
+          authoritativeFileMutations: Object.freeze(
+            (planProposal.proposedFileMutations || []).map(m => Object.freeze({
+              file: m.file,
+              content: m.content !== undefined ? m.content : '',
+              expectedState: m.expectedState !== undefined ? m.expectedState : null
+            }))
+          )
+        });
+
+        // FAZ 38.2 Remediation (DEF-01):
+        // If jobId is provided, authoritative plan MUST be bound strictly into jobEngine.
+        // If jobId is NOT provided, it is stored in legacyActivePlan ONLY for backward compatibility with legacy non-job tests.
+        // legacyActivePlan is strictly non-authoritative for Job-scoped execution.
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          authoritativeEngine.setJobPlan(body.jobId, generatedPlan, { tenantId });
+        } else {
+          legacyActivePlan = generatedPlan;
+        }
+
+        return sendJson(200, {
+          success: true,
+          plan: planProposal,
+          authoritativePlanId: generatedPlan.id,
+          jobId: body.jobId || null
+        });
+      }
+
+      // 3.1 Template Discovery API
+      if (req.method === 'GET' && req.url === '/api/templates') {
+        return sendJson(200, {
+          success: true,
+          templates: TemplateMetadata
+        });
+      }
+
+      // 3.2 Project Synthesis & Planning API
+      if (req.method === 'POST' && req.url === '/api/project/plan') {
+        const body = await readBody();
+        if (!activeWorkspace) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] No active workspace selected. Please select a workspace first.`);
+        }
+        const generator = createProjectGenerator();
+        const synthesis = await generator.synthesizeProject({
+          prompt: body.prompt || body.task || 'Express REST API projesi üret',
+          projectType: body.projectType,
+          projectName: body.projectName,
+          targetDirectory: body.targetDirectory || 'generated-project'
+        });
+
+        const generatedPlan = generator.createProjectPlan({
+          synthesis,
+          workspaceRoot: activeWorkspace.rootPath
+        });
+
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          authoritativeEngine.setJobPlan(body.jobId, generatedPlan, { tenantId });
+        } else {
+          legacyActivePlan = generatedPlan;
+        }
+
+        return sendJson(200, {
+          success: true,
+          synthesis,
+          plan: {
+            intent: synthesis.description,
+            analysis: `Otonom Proje Tasarlandı: '${synthesis.projectName}' (${synthesis.projectType}). ${synthesis.files.length} dosya ve otomatik test paketi hazırlandı.`,
+            proposedCommands: generatedPlan.expectedCommands,
+            proposedFileChanges: generatedPlan.expectedFileChanges,
+            proposedFileMutations: generatedPlan.authoritativeFileMutations,
+            riskLevel: 'LOW',
+            requiresApproval: true
+          },
+          authoritativePlanId: generatedPlan.id,
+          jobId: body.jobId || null
+        });
+      }
+
+      // 3.3 Batch Project File Generation & Mutation API
+      if (req.method === 'POST' && (req.url === '/api/project/generate' || req.url === '/api/mutate/batch')) {
+        const body = await readBody();
+        if (!activeWorkspace) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No active workspace has been selected.`);
+        }
+
+        let targetPlan = null;
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          authoritativeEngine.getJob(body.jobId, { tenantId });
+          targetPlan = authoritativeEngine.getJobPlan(body.jobId, { tenantId });
+        } else {
+          targetPlan = legacyActivePlan;
+        }
+
+        if (!targetPlan) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No authoritative plan exists for project generation.`);
+        }
+
+        if (body.planId && body.planId !== targetPlan.id) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Client planId '${body.planId}' does not match authoritative planId '${targetPlan.id}'`);
+        }
+
+        const generator = createProjectGenerator();
+        const result = await generator.applyProjectPlan({
+          plan: targetPlan,
+          workspaceRoot: activeWorkspace.rootPath,
+          approval: body.approval !== false,
+          dryRun: body.dryRun === true
+        });
+
+        // Record execution result if Job-scoped
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          authoritativeEngine.recordExecutionResult(body.jobId, {
+            taskId: targetPlan.taskId,
+            planId: targetPlan.id,
+            outcome: result.success ? 'SUCCEEDED' : 'FAILED',
+            result: {
+              status: 'COMPLETED',
+              projectGenerationResult: result
+            }
+          }, { tenantId });
+        }
+
+        const files = activeWorkspace.listFiles ? activeWorkspace.listFiles() : [];
+
+        return sendJson(200, {
+          success: result.success,
+          status: 'COMPLETED',
+          result,
+          files
+        });
+      }
+
+      // 3.4 Corporate Palettes API
+      if (req.method === 'GET' && req.url === '/api/corporate/palettes') {
+        return sendJson(200, {
+          success: true,
+          palettes: CorporatePalettes
+        });
+      }
+
+      // 3.4.1 Corporate Sectors Taxonomy API (13 Main Categories & 80+ Sub-Sectors)
+      if (req.method === 'GET' && req.url === '/api/corporate/sectors') {
+        const { getAllCategories, getAllSubSectors } = await import('../autonomous/sector-presets.js');
+        return sendJson(200, {
+          success: true,
+          categories: getAllCategories(),
+          subSectors: getAllSubSectors()
+        });
+      }
+
+      // 3.5 Corporate Portal Synthesis & Planning API
+      if (req.method === 'POST' && req.url === '/api/corporate/plan') {
+        const body = await readBody();
+        if (!activeWorkspace) {
+          activeWorkspace = createProjectWorkspace({ rootPath: process.cwd() });
+        }
+        const corporateGen = createCorporateGenerator();
+        const synthesis = corporateGen.synthesizeCorporateProject({
+          companyName: body.companyName,
+          subSectorId: body.subSectorId,
+          industry: body.industry,
+          slogan: body.slogan,
+          description: body.description,
+          services: body.services,
+          products: body.products,
+          contact: body.contact,
+          theme: body.theme,
+          adminUser: body.adminUser,
+          targetDir: body.targetDirectory || body.targetDir,
+          referenceUrls: body.referenceUrls,
+          layoutPreferences: body.layoutPreferences,
+          inspirationNotes: body.inspirationNotes,
+          googleMapsUrl: body.googleMapsUrl,
+          googleMapsDirectUrl: body.googleMapsDirectUrl,
+          googleRating: body.googleRating,
+          googleReviewCount: body.googleReviewCount,
+          googleReviews: body.googleReviews,
+          isFoodHospitality: body.isFoodHospitality,
+          coverPhotoUrl: body.coverPhotoUrl
+        });
+
+        const generatedPlan = corporateGen.createCorporatePlan({
+          synthesis,
+          workspaceRoot: activeWorkspace.rootPath
+        });
+
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          authoritativeEngine.setJobPlan(body.jobId, generatedPlan, { tenantId });
+        } else {
+          legacyActivePlan = generatedPlan;
+        }
+
+        return sendJson(200, {
+          success: true,
+          synthesis,
+          plan: {
+            intent: synthesis.description,
+            analysis: `Kurumsal Proje Tasarlandı: '${synthesis.projectName}' (${synthesis.metadata.industry}). OnluNet-Kurumsal Admin Paneli ve Özel Frontend dahil ${synthesis.files.length} dosya hazırlandı.`,
+            proposedCommands: generatedPlan.expectedCommands,
+            proposedFileChanges: generatedPlan.expectedFileChanges,
+            proposedFileMutations: generatedPlan.authoritativeFileMutations,
+            riskLevel: 'LOW',
+            requiresApproval: true
+          },
+          authoritativePlanId: generatedPlan.id,
+          jobId: body.jobId || null
+        });
+      }
+
+      // 3.5b Inspect & Modernize Legacy Website API
+      if (req.method === 'POST' && req.url === '/api/corporate/inspect-site') {
+        const body = await readBody();
+        if (!body.url || typeof body.url !== 'string' || body.url.trim() === '') {
+          return sendJson(400, {
+            success: false,
+            error: 'Site URL gereklidir (örneğin: https://falconenerji.com/)'
+          });
+        }
+
+        try {
+          const modernization = await inspectAndModernizeWebsite(body.url.trim(), {
+            timeoutMs: body.timeoutMs || 10000
+          });
+
+          return sendJson(200, {
+            success: true,
+            url: modernization.url,
+            spec: modernization.spec,
+            extracted: modernization.rawExtracted,
+            enriched: modernization.enriched
+          });
+        } catch (err) {
+          return sendJson(500, {
+            success: false,
+            error: `Site incelenirken hata oluştu: ${err.message}`
+          });
+        }
+      }
+
+      // 3.5c Inspect & Modernize Google Maps Listing API
+      if (req.method === 'POST' && req.url === '/api/corporate/inspect-maps') {
+        const body = await readBody();
+        if (!body.url || typeof body.url !== 'string' || body.url.trim() === '') {
+          return sendJson(400, {
+            success: false,
+            error: 'Google Haritalar URL gereklidir (örneğin: https://maps.app.goo.gl/... veya https://www.google.com/maps/place/...)'
+          });
+        }
+
+        try {
+          const modernization = await inspectAndModernizeGoogleMaps(body.url.trim(), {
+            timeoutMs: body.timeoutMs || 15000
+          });
+
+          return sendJson(200, {
+            success: true,
+            url: modernization.url,
+            listing: modernization.listing,
+            archetype: modernization.archetype,
+            spec: modernization.spec,
+            enriched: modernization.enriched
+          });
+        } catch (err) {
+          return sendJson(500, {
+            success: false,
+            error: `Google Haritalar profili incelenirken hata oluştu: ${err.message}`
+          });
+        }
+      }
+
+      // 3.6 Corporate Portal Generation & Mutation API
+      if (req.method === 'POST' && req.url === '/api/corporate/generate') {
+        const body = await readBody();
+        if (!activeWorkspace) {
+          activeWorkspace = createProjectWorkspace({ rootPath: process.cwd() });
+        }
+
+        let targetPlan = null;
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          authoritativeEngine.getJob(body.jobId, { tenantId });
+          targetPlan = authoritativeEngine.getJobPlan(body.jobId, { tenantId });
+        } else {
+          targetPlan = legacyActivePlan;
+        }
+
+        if (!targetPlan) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No authoritative plan exists for corporate generation.`);
+        }
+
+        const corporateGen = createCorporateGenerator();
+        const result = await corporateGen.applyCorporatePlan({
+          plan: targetPlan,
+          workspaceRoot: activeWorkspace.rootPath,
+          approval: body.approval !== false
+        });
+
+        let started = null;
+        const shouldAutoStart = body.autoStart === true || (body.autoStart !== false && !process.env.NODE_TEST_CONTEXT);
+        if (result.success && !body.dryRun && shouldAutoStart) {
+          const targetDirAbs = path.resolve(activeWorkspace.rootPath, result.targetDirectory);
+          started = startProjectServer(targetDirAbs, 8080);
+        }
+
+        const files = activeWorkspace.listFiles ? activeWorkspace.listFiles() : [];
+
+        return sendJson(200, {
+          success: result.success,
+          status: 'COMPLETED',
+          result,
+          files,
+          running: Boolean(started?.success),
+          port: started?.port || 8080,
+          url: started?.url || 'http://localhost:8080/tr/',
+          adminUrl: started?.adminUrl || 'http://localhost:8080/admin/login'
+        });
+      }
+
+      // 3.7 Projects List API
+      if (req.method === 'GET' && req.url === '/api/projects') {
+        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const projects = listProjects(root);
+        return sendJson(200, {
+          success: true,
+          projects,
+          activeProject: activeProjectProcess ? {
+            id: activeProjectProcess.projectId,
+            port: activeProjectProcess.port,
+            startedAt: activeProjectProcess.startedAt
+          } : null
+        });
+      }
+
+      // 3.8 Start Project API
+      if (req.method === 'POST' && req.url === '/api/projects/start') {
+        const body = await readBody();
+        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null);
+        if (!projectId) {
+          return sendJson(400, { success: false, error: 'projectId veya targetDirectory gereklidir.' });
+        }
+        const targetDirAbs = path.resolve(root, 'projeler', projectId);
+        if (!fs.existsSync(targetDirAbs)) {
+          return sendJson(404, { success: false, error: `Proje klasörü bulunamadı: ${targetDirAbs}` });
+        }
+
+        let projectPort = 8080;
+        const projectJsonPath = path.join(targetDirAbs, 'project.json');
+        if (fs.existsSync(projectJsonPath)) {
+          try {
+            const meta = JSON.parse(fs.readFileSync(projectJsonPath, 'utf8'));
+            if (meta.port) projectPort = meta.port;
+          } catch {}
+        }
+
+        const startRes = startProjectServer(targetDirAbs, body.port || projectPort);
+        if (!startRes.success) {
+          return sendJson(500, { success: false, error: startRes.error });
+        }
+
+        return sendJson(200, {
+          success: true,
+          projectId,
+          port: startRes.port,
+          url: startRes.url,
+          adminUrl: startRes.adminUrl,
+          message: `${projectId} başarıyla başlatıldı.`
+        });
+      }
+
+      // 3.9 Stop Project API
+      if (req.method === 'POST' && req.url === '/api/projects/stop') {
+        stopRunningProject();
+        return sendJson(200, {
+          success: true,
+          message: 'Proje sunucusu durduruldu.'
+        });
+      }
+
+      // 3.10 Autonomous Browser QA & Console Self-Healing API
+      if (req.method === 'POST' && req.url === '/api/projects/browser-audit') {
+        const body = await readBody();
+        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null) || (activeProjectProcess ? activeProjectProcess.projectId : null);
+        if (!projectId) {
+          return sendJson(400, { success: false, error: 'projectId belirtilmedi veya çalışan aktif bir proje yok.' });
+        }
+
+        const targetDirAbs = path.resolve(root, 'projeler', projectId);
+        if (!fs.existsSync(targetDirAbs)) {
+          return sendJson(404, { success: false, error: `Proje klasörü bulunamadı: ${targetDirAbs}` });
+        }
+
+        let projectPort = 8080;
+        const projectJsonPath = path.join(targetDirAbs, 'project.json');
+        if (fs.existsSync(projectJsonPath)) {
+          try {
+            const meta = JSON.parse(fs.readFileSync(projectJsonPath, 'utf8'));
+            if (meta.port) projectPort = meta.port;
+          } catch {}
+        }
+        if (body.port) projectPort = body.port;
+
+        // Ensure project server is started if not already running on this project
+        if (!activeProjectProcess || activeProjectProcess.projectId !== projectId) {
+          startProjectServer(targetDirAbs, projectPort);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        try {
+          const auditResult = await runSelfHealingAudit({
+            projectDir: targetDirAbs,
+            port: projectPort,
+            baseUrl: `http://localhost:${projectPort}`,
+            maxIterations: body.maxIterations || 3,
+            launchUserBrowser: body.launchUserBrowser === true,
+            pageWaitMs: body.pageWaitMs || 2500,
+            maxPages: body.maxPages || 6,
+            restartServerFn: async () => {
+              stopRunningProject();
+              await new Promise(r => setTimeout(r, 600));
+              startProjectServer(targetDirAbs, projectPort);
+            }
+          });
+
+          return sendJson(200, {
+            success: auditResult.success,
+            status: auditResult.status,
+            message: auditResult.message,
+            iterations: auditResult.iterations,
+            history: auditResult.history,
+            remainingErrors: auditResult.remainingErrors
+          });
+        } catch (auditErr) {
+          return sendJson(500, {
+            success: false,
+            error: auditErr.message
+          });
+        }
+      }
+
+      // 3.11 AI Cost & Quota Telemetry API
+      if (req.method === 'GET' && req.url === '/api/ai/cost-telemetry') {
+        const summary = authoritativeBudget ? authoritativeBudget.getSummary() : { totalTokens: 0, cumulativeCostUsd: 0 };
+        return sendJson(200, {
+          success: true,
+          budget: summary,
+          taskTiers: [
+            { id: 'TIER_1_LIGHT', name: 'Tier 1: Hafif İşler & Tarama', models: 'Gemini 2.0 Flash / DeepSeek / Ollama', cost: 'Ücretsiz / Minimal ($0.075/Mtok)', desc: 'Dosya tarama, özetleme, SEO meta, i18n çeviri ve log analizi' },
+            { id: 'TIER_2_BUILDER', name: 'Tier 2: Kodlama & Düzenleme', models: 'DeepSeek V3 / Groq / Qwen', cost: 'Ekonomik ($0.14/Mtok)', desc: 'Fonksiyon üretimi, diff yazımı, CSS ve test kodlaması' },
+            { id: 'TIER_3_ARCHITECT', name: 'Tier 3: Mimar & Güvenlik', models: 'Claude 3.5 Sonnet / GPT-4o / Gemini Pro', cost: 'Premium ($3.00/Mtok)', desc: 'Büyük ölçekli planlama, güvenlik denetimi, karmaşık orkestrasyon' }
+          ],
+          quotaProviders: [
+            { name: 'Google AI Studio (Gemini)', status: 'ONLINE', quota: 'Günlük Ücretsiz Kota Aktif', speed: 'Çok Hızlı' },
+            { name: 'DeepSeek Open Engine', status: 'ONLINE', quota: 'Ekonomik Token Havuzu', speed: 'Yüksek' },
+            { name: 'Groq Cloud Acceleration', status: 'ONLINE', quota: 'Ultra-Düşük Gecikme', speed: '500+ tok/s' },
+            { name: 'Local Ollama / vLLM', status: 'HAZIR', quota: 'Sınırsız / Çevrimdışı', speed: 'Donanım Bağımlı' }
+          ],
+          estimatedSavingsPercent: 88,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // 3.12 Multi-Agent Project Task Dispatcher API
+      if (req.method === 'POST' && req.url === '/api/projects/dispatch-task') {
+        const body = await readBody();
+        const root = activeWorkspace ? activeWorkspace.rootPath : process.cwd();
+        const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null);
+        const taskPrompt = (body.prompt || body.taskPrompt || '').trim();
+
+        if (!projectId) {
+          return sendJson(400, { success: false, error: 'projectId veya targetDirectory zorunludur.' });
+        }
+        if (!taskPrompt) {
+          return sendJson(400, { success: false, error: 'taskPrompt (yapılacak işlem talimatı) boş olamaz.' });
+        }
+
+        let targetDirAbs = path.resolve(root, 'projeler', projectId);
+        if (!fs.existsSync(targetDirAbs)) {
+          targetDirAbs = path.resolve(root, 'projects', projectId);
+        }
+        if (!fs.existsSync(targetDirAbs) && body.targetDirectory) {
+          targetDirAbs = path.resolve(root, body.targetDirectory);
+        }
+        if (!fs.existsSync(targetDirAbs)) {
+          return sendJson(404, { success: false, error: `Proje dizini bulunamadı: ${targetDirAbs}` });
+        }
+
+        try {
+          const squadResult = await runAgentSquadTask({
+            projectDir: targetDirAbs,
+            taskPrompt,
+            companyName: projectId,
+            budgetTracker: authoritativeBudget
+          });
+
+          return sendJson(200, {
+            success: squadResult.success,
+            projectId,
+            taskPrompt,
+            totalDurationMs: squadResult.totalDurationMs,
+            modifiedFiles: squadResult.modifiedFiles,
+            steps: squadResult.steps,
+            estimatedCostSavedUsd: squadResult.estimatedCostSavedUsd
+          });
+        } catch (squadErr) {
+          return sendJson(500, {
+            success: false,
+            error: squadErr.message
+          });
+        }
+      }
+
+      // 3.13 Google Maps & Local SEO Auditor API (ONLUNET LocalRadar)
+      if (req.method === 'POST' && req.url === '/api/maps/audit') {
+        const body = await readBody();
+        const targetUrl = (body.url || body.targetUrl || '').trim();
+
+        if (!targetUrl) {
+          return sendJson(400, { success: false, error: 'Google Harita bağlantısı (URL) zorunludur.' });
+        }
+
+        try {
+          // 1. Scrape listing via resilient CDP / URL resolver
+          const listing = await scrapeGoogleMapsListing(targetUrl);
+
+          // 2. Perform 100-point audit & cross-check with website
+          const auditResult = await auditGoogleMapsListing(listing);
+
+          const auditId = 'map-' + Date.now().toString(36);
+          const historyEntry = {
+            id: auditId,
+            name: listing.name,
+            url: targetUrl,
+            category: listing.category,
+            totalScore: auditResult.totalScore,
+            grade: auditResult.grade,
+            gradeLabel: auditResult.gradeLabel,
+            gradeColor: auditResult.gradeColor,
+            criticalCount: auditResult.criticalIssues.length,
+            timestamp: auditResult.timestamp
+          };
+
+          mapsAuditHistory.unshift(historyEntry);
+          if (mapsAuditHistory.length > 25) mapsAuditHistory.pop();
+          mapsAuditStore.set(auditId, auditResult);
+
+          return sendJson(200, {
+            success: true,
+            id: auditId,
+            ...auditResult
+          });
+        } catch (auditErr) {
+          return sendJson(500, {
+            success: false,
+            error: auditErr.message
+          });
+        }
+      }
+
+      if (req.method === 'GET' && req.url === '/api/maps/history') {
+        return sendJson(200, {
+          success: true,
+          history: mapsAuditHistory
+        });
+      }
+
+      if (req.method === 'GET' && req.url.startsWith('/api/maps/export/')) {
+        const id = req.url.replace('/api/maps/export/', '');
+        const record = mapsAuditStore.get(id);
+        if (!record) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          return res.end('Denetim raporu bulunamadı.');
+        }
+
+        const html = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yerel SEO & Harita Denetim Raporu - ${record.listing.name}</title>
+  <style>
+    :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --border: #e2e8f0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 30px; margin: 0; }
+    .container { max-width: 900px; margin: 0 auto; background: var(--card); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); padding: 40px; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); padding-bottom: 20px; margin-bottom: 30px; }
+    .score-badge { font-size: 3rem; font-weight: 800; color: ${record.gradeColor}; }
+    .dim-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin: 25px 0; }
+    .dim-card { background: #f1f5f9; padding: 15px; border-radius: 8px; text-align: center; }
+    .dim-val { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+    .dim-label { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+    .issue-box { background: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin-bottom: 12px; border-radius: 4px; }
+    .opt-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-top: 20px; }
+    pre { background: #0f172a; color: #38bdf8; padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+    @media print { body { padding: 0; background: #fff; } .container { box-shadow: none; padding: 0; } .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 style="margin:0 0 8px 0; font-size: 1.6rem;">📍 ONLUNET LocalRadar™ Yerel SEO Denetimi</h1>
+        <h2 style="margin:0; font-size: 1.2rem; color: #475569;">${record.listing.name}</h2>
+        <div style="font-size: 0.85rem; color: #64748b; margin-top: 6px;">Kategori: <strong>${record.listing.category}</strong> | Puan: <strong>${record.listing.rating} ⭐ (${record.listing.reviewCount} Yorum)</strong></div>
+      </div>
+      <div style="text-align: right;">
+        <div class="score-badge">${record.totalScore}<span style="font-size: 1.5rem;">/100</span></div>
+        <div style="font-weight: 600; color: ${record.gradeColor};">${record.grade} — ${record.gradeLabel}</div>
+      </div>
+    </div>
+
+    <div class="dim-grid">
+      <div class="dim-card"><div class="dim-val">${record.scores.categoryAndIdentity}/25</div><div class="dim-label">Kategori & Kimlik</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores.napAndWebsite}/25</div><div class="dim-label">NAP & Web Uyumu</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores.reviewsAndReputation}/20</div><div class="dim-label">Yorum & İtibar</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores.visualsAndMedia}/15</div><div class="dim-label">Görsel Varlık</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores.engagementAndPosts}/15</div><div class="dim-label">Etkileşim & Yayın</div></div>
+    </div>
+
+    <h3>⚠️ Kritik Eksikler & Acil Düzeltmeler</h3>
+    ${record.criticalIssues.length === 0 ? '<p style="color:#10b981;">Tebrikler! Kritik bir eksik bulunamadı.</p>' : record.criticalIssues.map(i => `
+      <div class="issue-box">
+        <strong>${i.title}</strong> [${i.level}]
+        <div style="font-size: 0.9rem; margin-top: 4px; color: #334155;">${i.description}</div>
+      </div>
+    `).join('')}
+
+    <h3>✨ Yapay Zeka Tarafından Üretilen Hazır Düzeltme Paketi</h3>
+    <div class="opt-box">
+      <h4>1. Optimize Edilmiş 750 Karakterlik İşletme Açıklaması</h4>
+      <p style="font-size: 0.95rem; line-height: 1.6; background: #fff; padding: 12px; border: 1px dashed var(--border); border-radius: 6px;">${record.optimizations.optimizedDescription}</p>
+      
+      <h4>2. Önerilen İkincil Kategoriler</h4>
+      <p style="font-size: 0.95rem;">${record.optimizations.suggestedSecondaries.join(' • ')}</p>
+
+      <h4>3. Web Sitesi İçin LocalBusiness JSON-LD Kodu</h4>
+      <pre><code>${record.optimizations.localBusinessJsonLd.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
+    </div>
+
+    <div style="margin-top: 30px; text-align: center;" class="no-print">
+      <button onclick="window.print()" style="background: var(--primary); color: #fff; border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer;">🖨️ Raporu Yazdır / PDF Olarak Kaydet</button>
+    </div>
+  </div>
+</body>
+</html>`;
+
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(html);
+      }
+
+      // 3.14 Comprehensive Web & Technical SEO Auditor API (ONLUNET SEO Radar™)
+      if (req.method === 'POST' && req.url === '/api/seo/audit') {
+        const body = await readBody();
+        const targetUrl = (body.url || body.targetUrl || '').trim();
+
+        if (!targetUrl) {
+          return sendJson(400, { success: false, error: 'Web sitesi bağlantısı (URL) zorunludur.' });
+        }
+
+        try {
+          // 1. Scrape via Dual-Engine (Fast HTTP + CDP fallback)
+          const scrapedData = await scrapeWebsiteForSeo(targetUrl, { forceCdp: Boolean(body.forceCdp) });
+
+          // 2. Compute 100-point multi-dimensional audit, 2026 GEO & AI Remediation package
+          const auditResult = await auditWebsiteSeo(scrapedData);
+
+          // 3. Detect if target matches any local project in projeler/
+          let isLocalProject = false;
+          let matchedProjectSlug = null;
+          try {
+            const urlObj = new URL(targetUrl);
+            const targetPort = urlObj.port ? Number(urlObj.port) : (urlObj.protocol === 'https:' ? 443 : 80);
+            const projDir = path.resolve(process.cwd(), 'projeler');
+
+            if (fs.existsSync(projDir)) {
+              const entries = fs.readdirSync(projDir, { withFileTypes: true });
+
+              if (activeProjectProcess && (targetPort === activeProjectProcess.port || targetUrl.includes(activeProjectProcess.projectId))) {
+                isLocalProject = true;
+                matchedProjectSlug = activeProjectProcess.projectId;
+              } else {
+                const pageTitleLow = (auditResult.aiPackage?.inferredIdentity?.name || '').toLowerCase();
+                for (const ent of entries) {
+                  if (!ent.isDirectory()) continue;
+                  const slugClean = ent.name.replace(/-/g, ' ').toLowerCase();
+                  if (targetUrl.includes(ent.name) || (pageTitleLow && (pageTitleLow.includes(slugClean) || slugClean.includes(pageTitleLow)))) {
+                    isLocalProject = true;
+                    matchedProjectSlug = ent.name;
+                    break;
+                  }
+                }
+
+                if (!matchedProjectSlug) {
+                  for (const ent of entries) {
+                    if (!ent.isDirectory()) continue;
+                    const pjPath = path.join(projDir, ent.name, 'project.json');
+                    if (fs.existsSync(pjPath)) {
+                      try {
+                        const pj = JSON.parse(fs.readFileSync(pjPath, 'utf8'));
+                        if (pj.port && targetPort === pj.port) {
+                          isLocalProject = true;
+                          matchedProjectSlug = ent.name;
+                          break;
+                        }
+                      } catch {}
+                    }
+                  }
+                }
+              }
+            }
+          } catch {}
+
+          const auditId = 'seo-' + Date.now().toString(36);
+          const historyEntry = {
+            id: auditId,
+            url: auditResult.url,
+            name: auditResult.aiPackage?.inferredIdentity?.name || 'Web Sitesi',
+            totalScore: auditResult.totalScore,
+            grade: auditResult.grade,
+            gradeLabel: auditResult.gradeLabel,
+            gradeColor: auditResult.gradeColor,
+            criticalCount: auditResult.criticalIssues.length,
+            isLocalProject,
+            projectSlug: matchedProjectSlug,
+            timestamp: new Date().toISOString()
+          };
+
+          seoAuditHistory.unshift(historyEntry);
+          if (seoAuditHistory.length > 30) seoAuditHistory.pop();
+          seoAuditStore.set(auditId, { ...auditResult, isLocalProject, projectSlug: matchedProjectSlug });
+
+          return sendJson(200, {
+            success: true,
+            id: auditId,
+            isLocalProject,
+            projectSlug: matchedProjectSlug,
+            ...auditResult
+          });
+        } catch (seoErr) {
+          return sendJson(500, {
+            success: false,
+            error: seoErr.message
+          });
+        }
+      }
+
+      if (req.method === 'GET' && req.url === '/api/seo/history') {
+        return sendJson(200, {
+          success: true,
+          history: seoAuditHistory
+        });
+      }
+
+      if (req.method === 'GET' && req.url.startsWith('/api/seo/export/')) {
+        const id = req.url.replace('/api/seo/export/', '');
+        const record = seoAuditStore.get(id);
+        if (!record) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          return res.end('SEO Denetim raporu bulunamadı.');
+        }
+
+        const reportName = record.aiPackage?.inferredIdentity?.name || 'Web Sitesi';
+        const html = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kapsamlı SEO & Teknik Denetim Raporu - ${reportName}</title>
+  <style>
+    :root { --primary: #0284c7; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --border: #e2e8f0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 30px; margin: 0; }
+    .container { max-width: 960px; margin: 0 auto; background: var(--card); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); padding: 40px; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); padding-bottom: 20px; margin-bottom: 30px; }
+    .score-badge { font-size: 3.2rem; font-weight: 800; color: ${record.gradeColor}; }
+    .dim-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 25px 0; }
+    .dim-card { background: #f1f5f9; padding: 15px; border-radius: 8px; text-align: center; }
+    .dim-val { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+    .dim-label { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+    .issue-box { background: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin-bottom: 12px; border-radius: 4px; }
+    .opt-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 22px; margin-top: 20px; }
+    .geo-box { background: #f0fdf4; border-left: 4px solid #10b981; padding: 16px; border-radius: 4px; margin: 20px 0; }
+    .roi-box { background: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 8px; margin: 20px 0; }
+    pre { background: #0f172a; color: #38bdf8; padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+    @media print { body { padding: 0; background: #fff; } .container { box-shadow: none; padding: 0; } .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 style="margin:0 0 8px 0; font-size: 1.6rem; color: #0f172a;">🔍 ONLUNET OMNI-SEO™ Kapsamlı Web Denetim Raporu</h1>
+        <h2 style="margin:0; font-size: 1.25rem; color: #334155;">${reportName}</h2>
+        <div style="font-size: 0.85rem; color: #64748b; margin-top: 6px;">URL: <strong>${record.url}</strong> | Yanıt Süresi: <strong>${record.responseTimeMs} ms</strong></div>
+      </div>
+      <div style="text-align: right;">
+        <div class="score-badge">${record.totalScore}<span style="font-size: 1.5rem;">/100</span></div>
+        <div style="font-weight: 700; font-size: 1.1rem; color: ${record.gradeColor};">${record.grade} — ${record.gradeLabel}</div>
+      </div>
+    </div>
+
+    <!-- 5 Dimensions Scorecard -->
+    <div class="dim-grid">
+      <div class="dim-card"><div class="dim-val">${record.scores?.technical || 0}/25</div><div class="dim-label">Teknik & Taranabilirlik</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores?.onPage || 0}/25</div><div class="dim-label">Sayfa İçi (On-Page)</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores?.content || 0}/20</div><div class="dim-label">İçerik & E-E-A-T</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores?.schema || 0}/15</div><div class="dim-label">Yapılandırılmış Veri</div></div>
+      <div class="dim-card"><div class="dim-val">${record.scores?.speedAndGeo || 0}/15</div><div class="dim-label">Hız & 2026 GEO</div></div>
+    </div>
+
+    <!-- 2026 GEO Readiness -->
+    <div class="geo-box">
+      <h3 style="margin:0 0 6px 0; color: #166534; font-size: 1.05rem;">🤖 2026 Google Gemini AI Overviews (GEO) Hazırlığı: ${record.geoReadiness?.score || 70}/100 [${record.geoReadiness?.quotabilityStatus || 'Hazır'}]</h3>
+      <p style="margin:0; font-size: 0.9rem; color: #15803d; line-height: 1.5;">${record.geoReadiness?.recommendation || ''}</p>
+    </div>
+
+    <!-- Financial ROI Box -->
+    <div class="roi-box">
+      <h3 style="margin:0 0 6px 0; color: #1e40af; font-size: 1.05rem;">💰 C-Level Finansal Değerleme & Google Ads Tasarrufu</h3>
+      <p style="margin:0; font-size: 0.92rem; color: #1e3a8a; line-height: 1.6;">${record.aiPackage?.financialRoi?.roiSummaryText || ''}</p>
+    </div>
+
+    <!-- Critical Issues -->
+    <h3>⚠️ Kritik Hatalar & Düzeltmeler</h3>
+    ${record.criticalIssues?.length === 0 ? '<p style="color:#10b981; font-weight:600;">✅ Tebrikler! Web sitenizde kritik bir SEO engeli tespit edilmedi.</p>' : record.criticalIssues?.map(i => `
+      <div class="issue-box">
+        <strong>${i.title}</strong> [${i.level || 'ÖNEMLİ'}]
+        <div style="font-size: 0.9rem; margin-top: 4px; color: #334155;">${i.description}</div>
+      </div>
+    `).join('')}
+
+    <!-- AI Remediation Package -->
+    <h3>✨ Yapay Zeka Hazır Düzeltme Paketi</h3>
+    <div class="opt-box">
+      <h4>1. Optimize Edilmiş 60 Karakterlik SEO Başlığı (Title)</h4>
+      <p style="font-size: 0.95rem; font-weight: 600; background: #fff; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 6px;">${record.aiPackage?.optimizedTitle || ''}</p>
+      
+      <h4>2. Tıklama Odaklı Meta Açıklaması (Meta Description)</h4>
+      <p style="font-size: 0.95rem; background: #fff; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 6px; line-height: 1.5;">${record.aiPackage?.optimizedDescription || ''}</p>
+
+      <h4>3. 2026 GEO Doğrudan Cevap Bloğu (Direct Answer Snippet)</h4>
+      <p style="font-size: 0.9rem; background: #fff; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 6px; line-height: 1.5;">${record.aiPackage?.geoDirectSnippet || ''}</p>
+
+      <h4>4. Organization & FAQPage JSON-LD Şeması</h4>
+      <pre><code>${(record.aiPackage?.organizationSchemaJson || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
+      <pre><code>${(record.aiPackage?.faqSchemaJson || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
+    </div>
+
+    <div style="margin-top: 30px; text-align: center;" class="no-print">
+      <button onclick="window.print()" style="background: var(--primary); color: #fff; border: none; padding: 12px 26px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 1rem;">🖨️ Raporu Yazdır / PDF Olarak Kaydet</button>
+    </div>
+  </div>
+</body>
+</html>`;
+
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(html);
+      }
+
+      // Self-Healing Auto-Remediation endpoint for local projects
+      if (req.method === 'POST' && req.url === '/api/seo/heal') {
+        const body = await readBody();
+        const auditId = body.id;
+        const projectSlug = body.projectSlug;
+
+        if (!auditId || !projectSlug) {
+          return sendJson(400, { success: false, error: 'auditId ve projectSlug zorunludur.' });
+        }
+
+        const record = seoAuditStore.get(auditId);
+        if (!record || !record.aiPackage) {
+          return sendJson(404, { success: false, error: 'Denetim kaydı bulunamadı.' });
+        }
+
+        const projectDir = path.resolve(process.cwd(), 'projeler', projectSlug);
+        const healResult = await autoHealProjectSeo(projectDir, record.aiPackage);
+
+        return sendJson(200, {
+          success: healResult.success,
+          modifications: healResult.modifications,
+          message: healResult.message
+        });
+      }
+
+      // Phase 38: Authoritative Job Engine Endpoints
+      // POST /api/jobs - Create Job
+      if (req.method === 'POST' && req.url === '/api/jobs') {
+        const body = await readBody();
+        const job = authoritativeEngine.createJob({
+          id: body.id,
+          projectId: body.projectId,
+          workflowId: body.workflowId,
+          tenantId: body.tenantId,
+          scopeReference: body.scopeReference,
+          workspaceReference: body.workspaceReference || (activeWorkspace ? activeWorkspace.rootPath : null)
+        });
+        return sendJson(201, { success: true, job });
+      }
+
+      // GET /api/jobs/:id - Get Job
+      if (req.method === 'GET' && req.url.startsWith('/api/jobs/') && !req.url.endsWith('/tasks') && !req.url.endsWith('/state') && !req.url.endsWith('/results')) {
+        const jobId = req.url.slice('/api/jobs/'.length).split('?')[0];
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const job = authoritativeEngine.getJob(jobId, { tenantId });
+        return sendJson(200, { success: true, job });
+      }
+
+      // POST /api/jobs/:id/state - Update Job State
+      if (req.method === 'POST' && req.url.startsWith('/api/jobs/') && req.url.endsWith('/state')) {
+        const parts = req.url.split('/');
+        const jobId = parts[3];
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const job = authoritativeEngine.updateJobState(jobId, body.status, {
+          reason: body.reason,
+          tenantId
+        });
+        return sendJson(200, { success: true, job });
+      }
+
+      // POST /api/jobs/:id/tasks - Create Task in Job
+      if (req.method === 'POST' && req.url.startsWith('/api/jobs/') && req.url.endsWith('/tasks')) {
+        const parts = req.url.split('/');
+        const jobId = parts[3];
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const task = authoritativeEngine.createTask({
+          id: body.id,
+          jobId,
+          objective: body.objective,
+          taskType: body.taskType,
+          tenantId
+        });
+        return sendJson(201, { success: true, task });
+      }
+
+      // GET /api/jobs/:id/tasks - List Tasks in Job
+      if (req.method === 'GET' && req.url.startsWith('/api/jobs/') && req.url.endsWith('/tasks')) {
+        const parts = req.url.split('/');
+        const jobId = parts[3].split('?')[0];
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const tasks = authoritativeEngine.listJobTasks(jobId, { tenantId });
+        return sendJson(200, { success: true, tasks });
+      }
+
+      // GET /api/jobs/:id/results - List Execution Results in Job (FAZ 39 Foundation)
+      if (req.method === 'GET' && req.url.startsWith('/api/jobs/') && req.url.endsWith('/results')) {
+        const parts = req.url.split('/');
+        const jobId = parts[3].split('?')[0];
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const results = authoritativeEngine.listJobExecutionResults(jobId, { tenantId });
+        return sendJson(200, { success: true, results });
+      }
+
+      // GET /api/tasks/:id - Get Task
+      if (req.method === 'GET' && req.url.startsWith('/api/tasks/') && !req.url.endsWith('/state')) {
+        const taskId = req.url.slice('/api/tasks/'.length).split('?')[0];
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const task = authoritativeEngine.getTask(taskId, { tenantId });
+        return sendJson(200, { success: true, task });
+      }
+
+      // POST /api/tasks/:id/state - Update Task State
+      if (req.method === 'POST' && req.url.startsWith('/api/tasks/') && req.url.endsWith('/state')) {
+        const parts = req.url.split('/');
+        const taskId = parts[3];
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const task = authoritativeEngine.updateTaskState(taskId, body.status, {
+          reason: body.reason,
+          tenantId
+        });
+        return sendJson(200, { success: true, task });
+      }
+
+      // FAZ 40: Work Unit Controlled Execution Endpoints
+      // POST /api/work-units/admit - Admit Work Unit against Authority Chain
+      if (req.method === 'POST' && req.url === '/api/work-units/admit') {
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const workspaceRoot = body.workspaceRoot || (activeWorkspace ? activeWorkspace.rootPath : null);
+
+        const workUnit = createWorkUnit({
+          id: body.id || `wu-${Date.now()}`,
+          tenantId,
+          workspaceRoot,
+          jobId: body.jobId,
+          taskId: body.taskId,
+          planId: body.planId,
+          action: body.action
+        });
+
+        const admission = admitWorkUnit({ workUnit, jobEngine: authoritativeEngine });
+        return sendJson(200, { success: true, admission, workUnit });
+      }
+
+      // POST /api/work-units/execute - Execute Admitted Work Unit
+      if (req.method === 'POST' && req.url === '/api/work-units/execute') {
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const workspaceRoot = body.workspaceRoot || (activeWorkspace ? activeWorkspace.rootPath : null);
+
+        const workUnit = createWorkUnit({
+          id: body.id || `wu-${Date.now()}`,
+          tenantId,
+          workspaceRoot,
+          jobId: body.jobId,
+          taskId: body.taskId,
+          planId: body.planId,
+          action: body.action
+        });
+
+        const executedUnit = executeWorkUnit({
+          workUnit,
+          jobEngine: authoritativeEngine,
+          userApproval: body.approval !== false
+        });
+
+        return sendJson(200, { success: true, workUnit: executedUnit });
+      }
+
+      // FAZ 43: Autonomous Policy Evaluation Endpoint
+      // POST /api/autonomous-policy/evaluate
+      if (req.method === 'POST' && req.url === '/api/autonomous-policy/evaluate') {
+        const body = await readBody();
+        const policy = createAutonomousPolicyContract(body.policy || {});
+        const workUnit = createWorkUnit(body.workUnit || {});
+        const evaluation = evaluateAutonomousPolicy({
+          policy,
+          workUnit,
+          currentExecutions: body.currentExecutions || 0,
+          currentCommands: body.currentCommands || 0,
+          currentMutations: body.currentMutations || 0
+        });
+        return sendJson(200, { success: true, ...evaluation });
+      }
+
+      // FAZ 45: AI Proposal Validation Boundary (Proposal-Only / Zero Execution)
+      // POST /api/ai/proposals/validate
+      if (req.method === 'POST' && req.url === '/api/ai/proposals/validate') {
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const workspaceRoot = body.workspaceRoot || (activeWorkspace ? activeWorkspace.rootPath : null);
+
+        let proposal = body.proposal;
+        if (body.rawResponse && body.providerContract) {
+          const provider = createAIProviderContract(body.providerContract);
+          proposal = normalizeAIProposal({
+            id: body.id || `prop-${Date.now()}`,
+            providerContract: provider,
+            tenantId,
+            workspaceRoot,
+            jobId: body.jobId || null,
+            taskId: body.taskId || null,
+            planId: body.planId || null,
+            rawResponse: body.rawResponse
+          });
+        }
+
+        const validation = validateAIProposal(proposal, {
+          expectedTenantId: tenantId,
+          expectedWorkspaceRoot: workspaceRoot
+        });
+
+        return sendJson(200, { success: true, proposal, validation });
+      }
+
+      // FAZ 46: Agent Registry Endpoints (Metadata Only / Zero Execution)
+      // POST /api/agents - Register Agent
+      if (req.method === 'POST' && req.url === '/api/agents') {
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const workspaceId = body.workspaceId || (activeWorkspace ? activeWorkspace.rootPath : null);
+
+        const agentDef = createAgentDefinition({
+          ...body,
+          tenantId,
+          workspaceId
+        });
+        const registered = authoritativeAgentRegistry.register(agentDef);
+        return sendJson(201, { success: true, agent: registered });
+      }
+
+      // GET /api/agents - List Agents
+      if (req.method === 'GET' && req.url === '/api/agents') {
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const agents = authoritativeAgentRegistry.list({ tenantId });
+        return sendJson(200, { success: true, agents, count: agents.length });
+      }
+
+      // GET /api/agents/:id - Get Agent by ID
+      if (req.method === 'GET' && req.url.startsWith('/api/agents/')) {
+        const agentId = req.url.slice('/api/agents/'.length).split('?')[0];
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const workspaceId = (activeWorkspace ? activeWorkspace.rootPath : null);
+        const agent = authoritativeAgentRegistry.get(agentId, { tenantId, workspaceId });
+        return sendJson(200, { success: true, agent });
+      }
+
+      // FAZ 47: Controlled Task Routing & Agent Orchestration Endpoint (Metadata Only / Zero Execution)
+      // POST /api/route - Route task to specialist agent
+      if (req.method === 'POST' && req.url === '/api/route') {
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const workspaceId = body.workspaceId || (activeWorkspace ? activeWorkspace.rootPath : null);
+
+        const task = createTaskDefinition({
+          id: body.id || `task-rt-${Date.now()}`,
+          objective: body.objective || body.taskPrompt || '',
+          tenantId,
+          workspaceId,
+          requiredCapabilities: body.requiredCapabilities || [],
+          preferredRole: body.preferredRole || null,
+          constraints: body.constraints || {},
+          metadata: body.metadata || {}
+        });
+
+        const policy = body.policy ? createAutonomousPolicyContract(body.policy) : null;
+        const routingDecision = routeTask({
+          task,
+          agentRegistry: authoritativeAgentRegistry,
+          callerTenantId: tenantId,
+          callerWorkspaceId: workspaceId,
+          autonomousPolicy: policy,
+          policyEvaluator: policy ? evaluateAutonomousPolicy : null
+        });
+
+        return sendJson(200, { success: true, decision: routingDecision });
+      }
+
+      // FAZ 48: Controlled Agent Proposal Endpoint (Metadata Only / Zero Execution / Proposal Only)
+      // POST /api/proposal - Generate normalized agent proposal
+      if (req.method === 'POST' && req.url === '/api/proposal') {
+        const body = await readBody();
+        const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        // Fail-closed workspace isolation check
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+
+        const proposal = createAgentProposal({
+          id: body.id || `prop-${Date.now()}`,
+          taskId: body.taskId,
+          agentId: body.agentId,
+          providerId: body.providerId || 'local-provider',
+          tenantId,
+          workspaceId,
+          objective: body.objective || '',
+          rationale: body.rationale || '',
+          operations: body.operations || [],
+          proposedFiles: body.proposedFiles || [],
+          proposedTests: body.proposedTests || [],
+          risks: body.risks || [],
+          assumptions: body.assumptions || [],
+          constraints: body.constraints || {},
+          metadata: body.metadata || {}
+        });
+
+        const validation = validateAgentProposal(proposal, {
+          expectedTenantId: tenantId,
+          expectedWorkspaceId: workspaceId,
+          expectedAgentId: body.agentId,
+          agentRegistry: authoritativeAgentRegistry
+        });
+
+        if (!validation.valid) {
+          return sendJson(400, { success: false, validation, proposal });
+        }
+
+        return sendJson(200, { success: true, validation, proposal });
+      }
+
+      // FAZ 49: Controlled AI Provider Invocation Endpoint (Metadata Only / Untrusted AI Response Normalization / Proposal Only)
+      // POST /api/invoke - Controlled invocation of provider for routed agent
+      if (req.method === 'POST' && req.url === '/api/invoke') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+
+        const request = createInvocationRequest({
+          id: body.id || `inv-${Date.now()}`,
+          taskId: body.taskId,
+          agentId: body.agentId,
+          providerId: body.providerId || 'local-provider',
+          tenantId,
+          workspaceId,
+          objective: body.objective || '',
+          requiredCapabilities: body.requiredCapabilities || [],
+          constraints: body.constraints || {},
+          metadata: body.metadata || {}
+        });
+
+        const invocationResult = await invokeAIProvider({
+          request,
+          agentRegistry: authoritativeAgentRegistry,
+          providerAdapter: authoritativeProvider,
+          callerTenantId: tenantId,
+          callerWorkspaceId: workspaceId
+        });
+
+        if (invocationResult.status !== 'INVOCATION_COMPLETED') {
+          return sendJson(400, { success: false, invocationResult });
+        }
+
+        return sendJson(200, { success: true, invocationResult });
+      }
+
+      // FAZ 50: Deterministic Multi-Agent Orchestration Plan API (Proposal-Only / Zero Execution Authority)
+      // POST /api/orchestrate - Composes or creates an orchestration plan
+      if (req.method === 'POST' && req.url === '/api/orchestrate') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        let result;
+        if (body.taskDefinition) {
+          // Automatic composition from task definition
+          const compResult = composeOrchestrationPlan({
+            taskDefinition: body.taskDefinition,
+            agentRegistry: authoritativeAgentRegistry,
+            callerTenantId: tenantId,
+            callerWorkspaceId: workspaceId,
+            requestedDependencies: body.dependencies || []
+          });
+          if (compResult.status !== MultiAgentPlanStatus.PLANNED) {
+            return sendJson(400, { success: false, ...compResult });
+          }
+          return sendJson(200, { success: true, plan: compResult.plan, ...compResult });
+        } else {
+          // Explicit plan creation
+          result = createMultiAgentOrchestrationPlan({
+            id: body.id,
+            taskId: body.taskId,
+            tenantId,
+            workspaceId,
+            objective: body.objective,
+            members: body.members,
+            dependencies: body.dependencies,
+            constraints: body.constraints,
+            metadata: body.metadata
+          });
+
+          if (result.status !== MultiAgentPlanStatus.PLANNED) {
+            return sendJson(400, { success: false, plan: result });
+          }
+
+          return sendJson(200, { success: true, plan: result });
+        }
+      }
+
+      // FAZ 51: Multi-Agent Proposal Aggregation & Review Endpoint (Proposal-Only / Zero Direct Execution)
+      // POST /api/proposal-review - Aggregates, validates, detects conflicts, and reviews proposals against plan
+      if (req.method === 'POST' && req.url === '/api/proposal-review') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        const reviewResult = aggregateAndReviewProposals({
+          tenantId,
+          workspaceId,
+          taskId: body.taskId,
+          orchestrationPlan: body.orchestrationPlan,
+          proposals: body.proposals || [],
+          agentRegistry: authoritativeAgentRegistry
+        });
+
+        if (reviewResult.status === ProposalReviewStatus.REVIEW_REJECTED ||
+            reviewResult.status === ProposalReviewStatus.INVALID_PROPOSAL ||
+            reviewResult.status === ProposalReviewStatus.INCONSISTENT) {
+          return sendJson(400, { success: false, reviewResult });
+        }
+
+        return sendJson(200, { success: true, reviewResult });
+      }
+
+      // FAZ 52: Controlled Approval / Admission Boundary Endpoint (Zero Direct Execution / Zero Mutation)
+      // POST /api/admission - Evaluates controlled admission from review result and explicit approval record
+      if (req.method === 'POST' && req.url === '/api/admission') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        const admissionDecision = evaluateApprovalAdmission({
+          tenantId,
+          workspaceId,
+          taskId: body.taskId,
+          orchestrationPlan: body.orchestrationPlan,
+          reviewResult: body.reviewResult,
+          approval: body.approval,
+          proposals: body.proposals || null
+        });
+
+        if (admissionDecision.admissionStatus === AdmissionStatus.ADMISSION_DENIED) {
+          return sendJson(400, { success: false, admissionDecision });
+        }
+
+        return sendJson(200, { success: true, admissionDecision });
+      }
+
+      // FAZ 53: Controlled Execution Bridge Endpoint (Single Execution / Admitted Proposal to WorkUnit Bridge)
+      // POST /api/execute-admitted - Executes an admitted proposal through controlled Job and Work Unit
+      if (req.method === 'POST' && req.url === '/api/execute-admitted') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+        const workspaceRoot = workspaceId || (activeWorkspace ? activeWorkspace.rootPath : process.cwd());
+
+        const bridgeResult = executeAdmittedBridge({
+          executionId: body.executionId,
+          jobEngine: authoritativeEngine,
+          admissionDecision: body.admissionDecision,
+          approval: body.approval,
+          reviewResult: body.reviewResult,
+          orchestrationPlan: body.orchestrationPlan,
+          proposals: body.proposals || [],
+          workspaceRoot,
+          tenantId
+        });
+
+        if (bridgeResult.status === ExecutionBridgeStatus.EXECUTION_DENIED) {
+          return sendJson(400, { success: false, bridgeResult });
+        }
+
+        return sendJson(200, { success: true, bridgeResult });
+      }
+
+      // FAZ 54: Deterministic Execution Verification Boundary (Read-Only / Zero Execution / Zero Retries)
+      // POST /api/verify-execution - Deterministically verifies execution result against expected invariants
+      if (req.method === 'POST' && req.url === '/api/verify-execution') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        const verification = verifyExecutionResult({
+          verificationId: body.verificationId || `ver-${Date.now()}`,
+          executionResult: body.executionResult,
+          expectedState: body.expectedState || {},
+          expectedProposalFingerprint: body.expectedProposalFingerprint || null,
+          context: {
+            executionId: body.executionId || (body.executionResult ? body.executionResult.executionId : null),
+            jobId: body.jobId || (body.executionResult ? body.executionResult.jobId : null),
+            workUnitId: body.workUnitId || (body.executionResult ? body.executionResult.workUnitId : null),
+            taskId: body.taskId || (body.executionResult ? body.executionResult.taskId : null),
+            planId: body.planId || (body.executionResult ? body.executionResult.planId : null),
+            tenantId,
+            workspaceId
+          }
+        });
+
+        if (verification.status === VerificationStatus.VERIFICATION_DENIED) {
+          return sendJson(400, { success: false, verification });
+        }
+
+        return sendJson(200, { success: true, verification });
+      }
+
+      // FAZ 55: Project / Test Verification Orchestration Boundary (Read-Only / Multi-Check Aggregation)
+      // POST /api/verify-project - Orchestrates multi-check deterministic project verification
+      if (req.method === 'POST' && req.url === '/api/verify-project') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        let plan = body.verificationPlan;
+        if (plan && typeof plan === 'object' && !plan.createdAt) {
+          try {
+            plan = createProjectVerificationPlan({
+              ...plan,
+              tenantId: plan.tenantId || tenantId,
+              workspaceId: plan.workspaceId || workspaceId
+            });
+          } catch (err) {
+            return sendJson(400, { success: false, error: err.message, status: ProjectVerificationStatus.VERIFICATION_DENIED });
+          }
+        }
+
+        const projectResult = orchestrateProjectVerification({
+          verificationId: body.verificationId || `proj-ver-${Date.now()}`,
+          verificationPlan: plan,
+          executionResults: body.executionResults || [],
+          expectedProposalFingerprint: body.expectedProposalFingerprint || null,
+          proposals: body.proposals || null,
+          context: {
+            tenantId,
+            workspaceId,
+            taskId: body.taskId,
+            jobId: body.jobId
+          }
+        });
+
+        if (projectResult.status === ProjectVerificationStatus.VERIFICATION_DENIED) {
+          return sendJson(400, { success: false, projectResult });
+        }
+
+        return sendJson(200, { success: true, projectResult });
+      }
+
+      // FAZ 56: Bounded Self-Correction Boundary (Controlled Failure Analysis -> Proposal -> Review -> Approval -> Admission -> Execution -> Verification)
+      // POST /api/correct - Orchestrates a bounded correction cycle
+      if (req.method === 'POST' && req.url === '/api/correct') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        const correctionResult = orchestrateSelfCorrection({
+          correctionId: body.correctionId || `corr-${Date.now()}`,
+          taskId: body.taskId,
+          jobId: body.jobId,
+          tenantId,
+          workspaceId,
+          correctionCycle: body.correctionCycle !== undefined ? body.correctionCycle : 1,
+          parentExecutionId: body.parentExecutionId || null,
+          parentVerificationId: body.parentVerificationId || null,
+          parentProjectVerificationId: body.parentProjectVerificationId || null,
+          parentExecutionResult: body.parentExecutionResult || null,
+          parentVerificationResult: body.parentVerificationResult || null,
+          parentProjectVerificationResult: body.parentProjectVerificationResult || null,
+          jobEngine: authoritativeEngine,
+          agentRegistry: body.agentRegistry || null,
+          orchestrationPlan: body.orchestrationPlan,
+          correctionProposal: body.correctionProposal,
+          reviewResult: body.reviewResult || null,
+          approval: body.approval || null,
+          executedAdmissionsTracker: body.executedAdmissionsTracker || null,
+          expectedVerificationPlan: body.expectedVerificationPlan || null,
+          rawPayload: body
+        });
+
+        if (correctionResult.status === CorrectionStatus.CORRECTION_DENIED) {
+          return sendJson(400, { success: false, correctionResult });
+        }
+
+        return sendJson(200, { success: true, correctionResult });
+      }
+
+      // FAZ 58: AI Provider Gateway & Registry Endpoints
+      // GET /api/providers - List configured providers (secrets redacted)
+      if (req.method === 'GET' && req.url === '/api/providers') {
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const providers = authoritativeProviderRegistry.listProviders({ tenantId });
+        return sendJson(200, { success: true, providers, count: providers.length });
+      }
+
+      // GET /api/providers/:id - Get provider details (secrets redacted)
+      if (req.method === 'GET' && req.url.startsWith('/api/providers/') && !req.url.endsWith('/health')) {
+        const providerId = req.url.slice('/api/providers/'.length).split('?')[0];
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const workspaceId = activeWorkspace ? activeWorkspace.rootPath : null;
+        const adapter = authoritativeProviderRegistry.getProvider(providerId, { tenantId, workspaceId });
+        return sendJson(200, {
+          success: true,
+          provider: {
+            providerId: adapter.providerId,
+            name: adapter.name,
+            model: adapter.model || 'unknown',
+            isLocal: Boolean(adapter.isLocal),
+            hasCredentials: Boolean(adapter.hasCredentials || adapter.isLocal)
+          }
+        });
+      }
+
+      // POST /api/providers/:id/health - Health check for specific provider
+      if (req.method === 'POST' && req.url.startsWith('/api/providers/') && req.url.endsWith('/health')) {
+        const parts = req.url.split('/');
+        const providerId = parts[3];
+        const health = await authoritativeGateway.checkHealth(providerId);
+        return sendJson(200, { success: true, health });
+      }
+
+      // FAZ 59: AI Control Plane Diagnostic Endpoints (No secrets disclosed)
+      // GET /api/ai/status - Overall control plane status & subsystem health
+      if (req.method === 'GET' && req.url === '/api/ai/status') {
+        return sendJson(200, {
+          success: true,
+          status: 'ONLINE',
+          providers: authoritativeControlPlane.healthMonitor.getAllHealth(),
+          budget: authoritativeBudget.getStatus(),
+          auditEventsCount: authoritativeControlPlane.auditLedger.count()
+        });
+      }
+
+      // GET /api/ai/providers - List registered providers with sanitized capabilities
+      if (req.method === 'GET' && req.url === '/api/ai/providers') {
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const providers = authoritativeProviderRegistry.listProviders({ tenantId });
+        return sendJson(200, { success: true, providers, count: providers.length });
+      }
+
+      // FAZ 63: Intelligent AI Routing & Model Metadata Endpoints
+      // GET /api/ai/models - List registered models from model registry
+      if (req.method === 'GET' && req.url.startsWith('/api/ai/models')) {
+        const urlObj = new URL(req.url, 'http://localhost');
+        const providerId = urlObj.searchParams.get('providerId');
+        const models = authoritativeModelRegistry.listModels(providerId ? { providerId } : {});
+        return sendJson(200, { success: true, models, count: models.length });
+      }
+
+      // GET /api/ai/capabilities - Canonical capabilities taxonomy
+      if (req.method === 'GET' && req.url === '/api/ai/capabilities') {
+        return sendJson(200, { success: true, capabilities: Object.values(ProviderCapabilities) });
+      }
+
+      // POST /api/ai/route - Intelligent task analysis and provider+model routing (proposal only)
+      if (req.method === 'POST' && req.url === '/api/ai/route') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace || null;
+
+        const decision = authoritativeRoutingEngine.route({
+          task: body.task,
+          taskType: body.taskType,
+          requiredCapabilities: body.requiredCapabilities,
+          dataClassification: body.dataClassification,
+          preferredProvider: body.preferredProvider,
+          preferredModel: body.preferredModel,
+          budget: body.budget,
+          maxCostUsd: body.maxCostUsd,
+          latencyTarget: body.latencyTarget,
+          qualityTarget: body.qualityTarget,
+          tenantId,
+          workspaceId
+        });
+
+        return sendJson(200, { success: true, decision });
+      }
+
+      // GET /api/ai/providers/:id/health - Health check metrics for provider
+      if (req.method === 'GET' && req.url.startsWith('/api/ai/providers/') && req.url.endsWith('/health')) {
+        const parts = req.url.split('/');
+        const providerId = parts[4];
+        const health = authoritativeControlPlane.healthMonitor.getHealth(providerId);
+        return sendJson(200, { success: true, health });
+      }
+
+      // GET /api/ai/metrics - Multi-tier spend & token metrics
+      if (req.method === 'GET' && req.url === '/api/ai/metrics') {
+        const tenantId = req.headers['x-tenant-id'] || 'default-tenant';
+        const workspaceId = activeWorkspace ? activeWorkspace.rootPath : 'default-workspace';
+        const metrics = authoritativeControlPlane.costGovernor.getSpendMetrics({ tenantId, workspaceId });
+        return sendJson(200, { success: true, metrics });
+      }
+
+      // GET /api/ai/audit - Sanitized append-only audit events
+      if (req.method === 'GET' && req.url.startsWith('/api/ai/audit')) {
+        const tenantId = req.headers['x-tenant-id'] || null;
+        const events = authoritativeControlPlane.auditLedger.getEvents({ tenantId, limit: 100 });
+        return sendJson(200, { success: true, events, count: events.length });
+      }
+
+      // FAZ 65: Production AI Execution Pipeline Endpoint
+      // POST /api/ai/execute - End-to-end task execution pipeline
+      if (req.method === 'POST' && (req.url === '/api/ai/execute' || req.url === '/api/ai/pipeline')) {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || 'default-tenant';
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace || 'default-workspace';
+
+        const contract = await authoritativePipeline.execute({
+          requestId: body.requestId,
+          task: body.task,
+          taskType: body.taskType,
+          requiredCapabilities: body.requiredCapabilities,
+          dataClassification: body.dataClassification,
+          preferredProvider: body.preferredProvider,
+          preferredModel: body.preferredModel,
+          budget: body.budget,
+          maxCostUsd: body.maxCostUsd,
+          latencyTarget: body.latencyTarget,
+          qualityTarget: body.qualityTarget,
+          expectedSchema: body.expectedSchema,
+          tenantId,
+          workspaceId,
+          systemPrompt: body.systemPrompt,
+          timeoutMs: body.timeoutMs || 15000,
+          metadata: body.metadata || {}
+        });
+
+        let httpStatus = 200;
+        if (contract.status === 'NOT_CONFIGURED') httpStatus = 503;
+        else if (contract.status === 'SECURITY_BLOCKED') httpStatus = 403;
+        else if (contract.status === 'BUDGET_EXCEEDED') httpStatus = 402;
+        else if (contract.status === 'PROVIDER_ERROR') httpStatus = 502;
+        else if (contract.status === 'VERIFICATION_FAILED') httpStatus = 422;
+        else if (contract.status === 'FAILED') httpStatus = 400;
+
+        return sendJson(httpStatus, { success: contract.status === 'COMPLETED', contract });
+      }
+
+      // POST /api/ai/control-plane/dispatch - Central Policy-Aware AI Dispatch
+      if (req.method === 'POST' && req.url === '/api/ai/control-plane/dispatch') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || 'default-tenant';
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace || 'default-workspace';
+
+        const result = await authoritativeControlPlane.executeDispatch({
+          prompt: body.prompt || '',
+          systemPrompt: body.systemPrompt || null,
+          contextData: body.contextData || null,
+          agentId: body.agentId || 'agent-default',
+          agentRole: body.agentRole || 'DEVELOPER',
+          taskType: body.taskType || 'general',
+          requiredCapabilities: body.requiredCapabilities || [],
+          dataClassification: body.dataClassification || null,
+          tenantId,
+          workspaceId,
+          taskId: body.taskId || null,
+          planId: body.planId || null,
+          idempotencyKey: body.idempotencyKey || null,
+          timeoutMs: body.timeoutMs || 15000,
+          maxRetries: body.maxRetries !== undefined ? body.maxRetries : 2,
+          metadata: body.metadata || {}
+        });
+
+        return sendJson(200, { success: true, result });
+      }
+
+      // POST /api/ai/invoke - Controlled AI Provider Gateway Invocation (Proposal-Only / Zero Authority)
+      if (req.method === 'POST' && req.url === '/api/ai/invoke') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        const dispatchResult = await authoritativeGateway.dispatch({
+          requestId: body.requestId,
+          providerId: body.providerId || 'local',
+          fallbackProviderId: body.fallbackProviderId || null,
+          prompt: body.prompt || body.objective || '',
+          agentId: body.agentId || 'agent-default',
+          agentRole: body.agentRole || 'DEVELOPER',
+          systemPrompt: body.systemPrompt || null,
+          constraints: body.constraints || {},
+          metadata: body.metadata || {},
+          timeoutMs: body.timeoutMs,
+          maxRetries: body.maxRetries,
+          tenantId,
+          workspaceId
+        });
+
+        if (dispatchResult.status !== 'SUCCESS') {
+          return sendJson(400, { success: false, dispatchResult });
+        }
+
+        return sendJson(200, { success: true, dispatchResult });
+      }
+
+      // POST /api/orchestration/run - Run Multi-Agent Orchestration Plan (Proposal-Only / Zero Direct Execution)
+      if (req.method === 'POST' && req.url === '/api/orchestration/run') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || null;
+        const callerWorkspace = activeWorkspace ? activeWorkspace.rootPath : (req.headers['x-workspace-id'] || null);
+
+        if (callerWorkspace !== null && body.workspaceId && path.resolve(body.workspaceId) !== path.resolve(callerWorkspace)) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Workspace mismatch: Client workspace '${body.workspaceId}' does not match authoritative active workspace '${callerWorkspace}'`);
+        }
+        const workspaceId = body.workspaceId || callerWorkspace;
+
+        const execResult = await authoritativeExecutor.executePlan({
+          executionId: body.executionId,
+          orchestrationPlan: body.orchestrationPlan,
+          mode: body.mode,
+          context: body.context || {},
+          tenantId,
+          workspaceId
+        });
+
+        if (execResult.status === 'FAILED' || execResult.status === 'BUDGET_EXCEEDED') {
+          return sendJson(400, { success: false, ...execResult });
+        }
+
+        return sendJson(200, { success: true, ...execResult });
+      }
+
+      // FAZ 59: Autonomous Project Job Endpoints
+      // POST /api/autonomous/jobs - Create and optionally run an autonomous job
+      if (req.method === 'POST' && req.url === '/api/autonomous/jobs') {
+        const body = await readBody();
+        const headerTenant = req.headers['x-tenant-id'] || null;
+        if (headerTenant !== null && body.tenantId && headerTenant !== body.tenantId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Tenant mismatch: Caller tenant '${headerTenant}' does not match body tenant '${body.tenantId}'`);
+        }
+        const tenantId = body.tenantId || headerTenant || 'default-tenant';
+        const workspaceId = body.workspaceId || (activeWorkspace ? activeWorkspace.rootPath : 'default-workspace');
+
+        const job = authoritativeAutonomousEngine.createJob({
+          userRequest: body.userRequest || '',
+          tenantId,
+          workspaceId,
+          idempotencyKey: body.idempotencyKey || null,
+          limits: body.limits || {}
+        });
+
+        if (body.executeNow) {
+          await authoritativeAutonomousEngine.executeJob(job.jobId, {
+            customProposal: body.customProposal || null,
+            initialTestOutcome: body.initialTestOutcome || null
+          });
+        }
+
+        return sendJson(201, { success: true, job: job.toJSON() });
+      }
+
+      // GET /api/autonomous/jobs/:jobId - Get job details
+      if (req.method === 'GET' && req.url.startsWith('/api/autonomous/jobs/') && !req.url.endsWith('/cancel') && !req.url.endsWith('/resume') && !req.url.endsWith('/events') && !req.url.endsWith('/result')) {
+        const jobId = req.url.slice('/api/autonomous/jobs/'.length).split('?')[0];
+        const job = authoritativeAutonomousEngine.getJob(jobId);
+        if (!job) {
+          return sendJson(404, { success: false, error: `Autonomous job not found: ${jobId}` });
+        }
+        return sendJson(200, { success: true, job: job.toJSON() });
+      }
+
+      // POST /api/autonomous/jobs/:jobId/cancel - Cancel job
+      if (req.method === 'POST' && req.url.startsWith('/api/autonomous/jobs/') && req.url.endsWith('/cancel')) {
+        const parts = req.url.split('/');
+        const jobId = parts[parts.length - 2];
+        const body = await readBody();
+        const status = authoritativeAutonomousEngine.cancelJob(jobId, body.reason || 'User requested cancellation');
+        return sendJson(200, { success: true, jobId, status });
+      }
+
+      // POST /api/autonomous/jobs/:jobId/resume - Resume job
+      if (req.method === 'POST' && req.url.startsWith('/api/autonomous/jobs/') && req.url.endsWith('/resume')) {
+        const parts = req.url.split('/');
+        const jobId = parts[parts.length - 2];
+        const body = await readBody();
+        const status = authoritativeAutonomousEngine.resumeJob(jobId, body.targetState);
+        return sendJson(200, { success: true, jobId, status });
+      }
+
+      // GET /api/autonomous/jobs/:jobId/events - List events
+      if (req.method === 'GET' && req.url.startsWith('/api/autonomous/jobs/') && req.url.endsWith('/events')) {
+        const parts = req.url.split('/');
+        const jobId = parts[parts.length - 2];
+        const events = authoritativeAutonomousEngine.getJobEvents(jobId);
+        return sendJson(200, { success: true, jobId, events });
+      }
+
+      // GET /api/autonomous/jobs/:jobId/result - Get final result
+      if (req.method === 'GET' && req.url.startsWith('/api/autonomous/jobs/') && req.url.endsWith('/result')) {
+        const parts = req.url.split('/');
+        const jobId = parts[parts.length - 2];
+        const result = authoritativeAutonomousEngine.getJobResult(jobId);
+        if (!result) {
+          return sendJson(404, { success: false, error: `Autonomous job not found: ${jobId}` });
+        }
+        return sendJson(200, { success: true, jobId, result });
+      }
+
+      // 4. Controlled Execution Pipeline API (Commands)
+      if (req.method === 'POST' && req.url === '/api/execute') {
+        const body = await readBody();
+
+        // Security check: Must have an active workspace
+        if (!activeWorkspace) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: No active workspace has been selected.`);
+        }
+
+        // Security check: If client sends a workspaceRoot, it MUST match the authoritative active workspace!
+        if (body.workspaceRoot) {
+          const resolvedClientPath = path.resolve(body.workspaceRoot);
+          if (resolvedClientPath !== activeWorkspace.rootPath) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: Client workspaceRoot '${body.workspaceRoot}' does not match authoritative active workspace '${activeWorkspace.rootPath}'`);
+          }
+        }
+
+        // FAZ 38.2 Remediation (DEF-01):
+        // Resolve authoritative plan. If jobId is provided, plan MUST come strictly from jobEngine.
+        let executionPlan = null;
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          // Validate Job existence and tenant isolation
+          authoritativeEngine.getJob(body.jobId, { tenantId });
+          executionPlan = authoritativeEngine.getJobPlan(body.jobId, { tenantId });
+          if (!executionPlan) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: No authoritative plan exists for Job '${body.jobId}'`);
+          }
+        } else {
+          // Backward compatibility fallback ONLY for non-job legacy callers
+          executionPlan = legacyActivePlan;
+        }
+
+        // Security check: Must have an authoritative plan
+        if (!executionPlan) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: No authoritative plan generated for execution.`);
+        }
+
+        // Security check: Authoritative plan workspace consistency
+        if (executionPlan.workspaceRoot && executionPlan.workspaceRoot !== activeWorkspace.rootPath) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: Authoritative plan workspaceRoot '${executionPlan.workspaceRoot}' does not match active workspace '${activeWorkspace.rootPath}'`);
+        }
+
+        // Phase 21 Security check: Identity integrity (planId & taskId)
+        if (body.planId && body.planId !== executionPlan.id) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: Client planId '${body.planId}' does not match authoritative planId '${executionPlan.id}'`);
+        }
+        if (body.taskId && body.taskId !== executionPlan.taskId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Execution blocked: Client taskId '${body.taskId}' does not match authoritative taskId '${executionPlan.taskId}'`);
+        }
+
+        const result = pipelineRunner({
+          workspaceRoot: activeWorkspace.rootPath,
+          command: body.command,
+          userApproval: body.approval !== false,
+          authoritativePlan: executionPlan,
+          planId: body.planId,
+          taskId: body.taskId
+        });
+
+        // FAZ 39 Foundation: Record execution result strictly bound to Job
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          const outcome = result && result.status === 'COMPLETED' && result.executionResult && result.executionResult.outcome === 'SUCCEEDED'
+            ? 'SUCCEEDED'
+            : (result && result.status === 'ADMISSION_DENIED' ? 'DENIED' : 'FAILED');
+
+          authoritativeEngine.recordExecutionResult(body.jobId, {
+            taskId: executionPlan.taskId,
+            planId: executionPlan.id,
+            outcome,
+            result
+          }, { tenantId });
+        }
+
+        return sendJson(200, result);
+      }
+
+      // 5. Controlled File Mutation API (Phase 18)
+      if (req.method === 'POST' && req.url === '/api/mutate') {
+        const body = await readBody();
+
+        // Security check: Must have an active workspace
+        if (!activeWorkspace) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No active workspace has been selected.`);
+        }
+
+        // Security check: If client sends workspaceRoot, it must match activeWorkspace
+        if (body.workspaceRoot) {
+          const resolvedClientWorkspace = path.resolve(body.workspaceRoot);
+          if (resolvedClientWorkspace !== activeWorkspace.rootPath) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Client workspaceRoot '${body.workspaceRoot}' does not match authoritative active workspace '${activeWorkspace.rootPath}'`);
+          }
+        }
+
+        // FAZ 38.2 Remediation (DEF-01):
+        // Resolve authoritative plan. If jobId is provided, plan MUST come strictly from jobEngine.
+        let mutationPlan = null;
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          // Validate Job existence and tenant isolation
+          authoritativeEngine.getJob(body.jobId, { tenantId });
+          mutationPlan = authoritativeEngine.getJobPlan(body.jobId, { tenantId });
+          if (!mutationPlan) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No authoritative plan exists for Job '${body.jobId}'`);
+          }
+        } else {
+          // Backward compatibility fallback ONLY for non-job legacy callers
+          mutationPlan = legacyActivePlan;
+        }
+
+        // Security check: Must have an authoritative plan
+        if (!mutationPlan) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No authoritative plan generated for mutation.`);
+        }
+
+        // Security check: Authoritative plan workspace consistency
+        if (mutationPlan.workspaceRoot && mutationPlan.workspaceRoot !== activeWorkspace.rootPath) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Authoritative plan workspaceRoot '${mutationPlan.workspaceRoot}' does not match active workspace '${activeWorkspace.rootPath}'`);
+        }
+
+        // Security check: Identity integrity (planId & taskId)
+        if (body.planId && body.planId !== mutationPlan.id) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Client planId '${body.planId}' does not match authoritative planId '${mutationPlan.id}'`);
+        }
+        if (body.taskId && body.taskId !== mutationPlan.taskId) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Client taskId '${body.taskId}' does not match authoritative taskId '${mutationPlan.taskId}'`);
+        }
+
+        // Target resolution & verification against authoritative plan expectedFileChanges
+        const targetPath = body.targetPath;
+        if (!targetPath || typeof targetPath !== 'string' || targetPath.trim() === '') {
+          throw new Error(`[${ErrorCodes.INVALID_CONTRACT}] targetPath is required for file mutation`);
+        }
+
+        const resolvedTarget = path.resolve(activeWorkspace.rootPath, targetPath);
+        const expectedFiles = mutationPlan.expectedFileChanges || [];
+        const isAuthorizedTarget = expectedFiles.some(expectedFile => {
+          const resolvedExpected = path.resolve(activeWorkspace.rootPath, expectedFile);
+          return resolvedExpected === resolvedTarget;
+        });
+
+        if (!isAuthorizedTarget) {
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Target '${targetPath}' is not in authoritative plan expectedFileChanges: [${expectedFiles.join(', ')}]`);
+        }
+
+        // Build authoritative preflight policies
+        const task = createTask({
+          id: mutationPlan.taskId,
+          jobId: body.jobId || `job-${Date.now()}`,
+          objective: 'Controlled file mutation',
+          status: TaskState.READY
+        });
+
+        const approvalRecord = createApproval({
+          id: `appr-${Date.now()}`,
+          actionType: task.objective,
+          reason: body.approval !== false ? 'User approved file mutation' : 'User rejected file mutation',
+          approvalState: body.approval !== false ? 'APPROVED' : 'REJECTED'
+        });
+
+        const scopePolicy = createScopePolicy({
+          allowedSurfaces: ['FILES'],
+          expectedFiles: [targetPath],
+          allowedFiles: [targetPath]
+        });
+        const execPolicy = createExecutionPolicy({ allowedWorkingDirectories: [activeWorkspace.rootPath] });
+        const secPolicy = createSecurityPolicy({});
+        const apprPolicy = createApprovalPolicy({
+          mandatoryApprovalActions: [task.objective]
+        });
+
+        const admission = evaluateExecutionPreflight({
+          id: `adm-${Date.now()}`,
+          task,
+          executionPlan: mutationPlan,
+          workingDirectory: activeWorkspace.rootPath,
+          scopePolicy,
+          executionPolicy: execPolicy,
+          securityPolicy: secPolicy,
+          approvalPolicy: apprPolicy,
+          approval: approvalRecord
+        });
+
+        if (admission.decision !== 'ALLOWED') {
+          return sendJson(200, {
+            status: 'ADMISSION_DENIED',
+            admission,
+            mutationResult: null,
+            postValidation: null
+          });
+        }
+
+        // Build handoff, request, authorization with exact context binding
+        const handoff = createExecutionHandoffContract({
+          id: `h-mut-${Date.now()}`,
+          taskId: task.id,
+          planId: mutationPlan.id,
+          admissionResult: admission,
+          workingDirectory: activeWorkspace.rootPath,
+          expectedCommands: []
+        });
+
+        const request = consumeExecutionHandoff({
+          requestId: `req-mut-${Date.now()}`,
+          handoff,
+          admissionResult: admission
+        });
+
+        const authorization = authorizeExecutionRequest({
+          id: `auth-mut-${Date.now()}`,
+          executionRequest: request,
+          admissionResult: admission
+        });
+
+        // Phase 19: Authoritative content lookup and validation
+        const authoritativeMutations = mutationPlan.authoritativeFileMutations || [];
+        const matchingAuthMutation = authoritativeMutations.find(m => {
+          const resolvedAuthFile = path.resolve(activeWorkspace.rootPath, m.file);
+          return resolvedAuthFile === resolvedTarget;
+        });
+
+        let targetContentToWrite = '';
+        let targetExpectedState = body.expectedState !== undefined ? body.expectedState : null;
+
+        if (matchingAuthMutation) {
+          // Authoritative content is defined by the plan
+          if (body.content !== undefined && body.content !== null) {
+            // Client provided content: MUST strictly match authoritative content
+            if (body.content !== matchingAuthMutation.content) {
+              throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Client content does not match authoritative plan content for target '${targetPath}'`);
+            }
+            targetContentToWrite = matchingAuthMutation.content;
+          } else {
+            // Client omitted content: use authoritative content from plan
+            targetContentToWrite = matchingAuthMutation.content;
+          }
+
+          // Authoritative expectedState from plan if declared
+          if (matchingAuthMutation.expectedState !== null && matchingAuthMutation.expectedState !== undefined) {
+            if (body.expectedState !== undefined && body.expectedState !== null && body.expectedState !== matchingAuthMutation.expectedState) {
+              throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Client expectedState does not match authoritative plan expectedState for target '${targetPath}'`);
+            }
+            targetExpectedState = matchingAuthMutation.expectedState;
+          }
+        } else {
+          // Fallback if plan did not specify authoritative mutation details (backward compatibility)
+          targetContentToWrite = body.content !== undefined ? body.content : '';
+        }
+
+        // Securely augment authorization with authorizedTarget, authorizedContent, and expectedState
+        const boundAuthorization = Object.freeze({
+          ...authorization,
+          authorizedContext: Object.freeze({
+            ...authorization.authorizedContext,
+            authorizedTarget: resolvedTarget,
+            authorizedContent: targetContentToWrite,
+            expectedState: targetExpectedState
+          })
+        });
+
+        const mutationResult = executeAuthorizedFileMutation({
+          resultId: `mut-res-${Date.now()}`,
+          executionRequest: request,
+          authorization: boundAuthorization,
+          workspaceRoot: activeWorkspace.rootPath,
+          targetPath: resolvedTarget,
+          content: targetContentToWrite,
+          operation: body.operation || 'WRITE',
+          expectedState: targetExpectedState,
+          dryRun: body.dryRun === true
+        });
+
+        // Post-execution validation
+        const validationTask = createTask({
+          id: task.id,
+          jobId: task.jobId,
+          objective: task.objective,
+          status: TaskState.VALIDATING
+        });
+
+        const validationContract = createValidation({
+          id: `val-${Date.now()}`,
+          target: targetPath,
+          result: mutationResult.outcome === 'SUCCEEDED' ? ValidationResult.PASS : ValidationResult.FAIL,
+          failureReason: mutationResult.failureReason
+        });
+
+        const postValidation = evaluatePostExecutionValidation({
+          task: validationTask,
+          validation: validationContract,
+          evidences: [`file-mut-${resolvedTarget}`]
+        });
+
+        // FAZ 39 Foundation: Record execution/mutation result strictly bound to Job
+        if (body.jobId) {
+          const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+          const outcome = mutationResult && mutationResult.outcome === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED';
+          authoritativeEngine.recordExecutionResult(body.jobId, {
+            taskId: mutationPlan.taskId,
+            planId: mutationPlan.id,
+            outcome,
+            result: {
+              status: 'COMPLETED',
+              mutationResult,
+              postValidation
+            }
+          }, { tenantId });
+        }
+
+        return sendJson(200, {
+          status: 'COMPLETED',
+          admission,
+          authorization: boundAuthorization,
+          mutationResult,
+          postValidation
+        });
+      }
+
+      // 404 fallback
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    } catch (err) {
+      const cleanError = sanitizeFilePath(sanitizeString(err.message || 'Server processing error'));
+      sendJson(400, { success: false, error: cleanError });
+    }
+  });
+
+  server.on('close', () => {
+    stopRunningProject();
+  });
+
+  return server;
+}
+
+// Allow direct standalone run
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  const fs = await import('fs');
+  const logFile = path.resolve('C:/Users/OnluN/.gemini/antigravity/brain/31a7db48-0b66-4f5c-b95f-d48b90b3c4c8/scratch/server_debug.log');
+
+  function debugLog(msg) {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    try { fs.appendFileSync(logFile, line); } catch {}
+    console.log(msg);
+  }
+
+  process.on('uncaughtException', (err) => {
+    debugLog(`[SERVER UNCAUGHT EXCEPTION]: ${err.stack || err}`);
+  });
+  process.on('unhandledRejection', (reason) => {
+    debugLog(`[SERVER UNHANDLED REJECTION]: ${reason}`);
+  });
+  process.on('exit', (code) => {
+    debugLog(`[SERVER EXIT EVENT] Code: ${code}`);
+  });
+  process.on('SIGINT', () => {
+    debugLog('[SERVER RECEIVED SIGINT]');
+  });
+  process.on('SIGTERM', () => {
+    debugLog('[SERVER RECEIVED SIGTERM]');
+  });
+  process.on('SIGHUP', () => {
+    debugLog('[SERVER RECEIVED SIGHUP]');
+  });
+
+  const PORT = process.env.PORT || 4200;
+  const srv = createApplicationServer();
+  srv.listen(PORT, () => {
+    debugLog(`[ONLUNET ZEKA] Standalone Application UI running at http://localhost:${PORT}`);
+  });
+}

@@ -1,0 +1,17 @@
+{
+  "name": "ai-development-os-foundation",
+  "version": "0.1.0",
+  "description": "AI Development OS - Phase 1 Foundation, Contracts, and Architectural Test Harness",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/**/*.test.js",
+    "start": "node src/app/server.js",
+    "cli": "node bin/onlunet.js",
+    "generate": "node bin/onlunet.js create"
+  },
+  "bin": {
+    "onlunet": "./bin/onlunet.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
