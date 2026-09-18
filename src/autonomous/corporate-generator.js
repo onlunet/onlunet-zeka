@@ -1015,34 +1015,34 @@ function renderSpecDrivenCorporateHome({
     if (isSplit) {
       const leftCol = `
             <div class="split-hero-content">
-              <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 6px 14px; border-radius: var(--radius-full, 9999px); font-size: 0.85rem; color: ${brandThemeBg}; font-weight: 700; margin-bottom: 16px;">
-                <span>🐾</span> ${industry || 'Güvenilir Mama & Evcil Hayvan Beslenmesi'}
+              <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(37, 99, 235, 0.3); padding: 6px 14px; border-radius: var(--radius-full, 9999px); font-size: 0.85rem; color: ${brandThemeBg}; font-weight: 700; margin-bottom: 16px;">
+                <span>⚡</span> ${industry || 'Kurumsal Çözümler & Endüstriyel Hizmetler'}
               </div>
               <h1 class="hero-title-responsive" data-reference-role="hero_headline" style="font-size: clamp(2.2rem, 5vw, 3.2rem); font-weight: 800; line-height: 1.15; color: ${heroTextColor}; margin-bottom: 16px; letter-spacing: -0.02em;">
                 ${slogan || companyName}
               </h1>
               <p style="font-size: 1.05rem; color: ${subTextColor}; line-height: 1.6; margin-bottom: 24px;">
-                ${description || 'Balıkesir’de evcil dostlarınız için güvenilir mama, kum ve kaliteli bakım ürünleri.'}
+                ${description || `${companyName}, alanında uzman kadrosu ve ileri teknoloji altyapısıyla en yüksek kalite standartlarında çözümler sunmaktadır.`}
               </p>
               <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                <a href="#teklif" data-reference-role="cta_button" style="background: ${brandAccent}; color: #ffffff; padding: 13px 26px; border-radius: ${btnRadius}; font-weight: 700; text-decoration: none; box-shadow: 0 4px 14px rgba(16,185,129,0.3); display: inline-flex; align-items: center; gap: 8px;">
-                  <span>🛒</span> Ürünleri İncele &rarr;
+                <a href="#teklif" data-reference-role="cta_button" style="background: ${brandAccent}; color: #ffffff; padding: 13px 26px; border-radius: ${btnRadius}; font-weight: 700; text-decoration: none; box-shadow: 0 4px 14px rgba(37,99,235,0.3); display: inline-flex; align-items: center; gap: 8px;">
+                  <span>📋</span> Hizmetleri İncele &rarr;
                 </a>
-                ${phone ? `<a href="https://wa.me/90${phone.replace(/\\D/g, '')}" target="_blank" rel="noopener" style="color: ${heroTextColor}; border: 1px solid var(--border, #cbd5e1); background: var(--bg-surface, #ffffff); padding: 12px 22px; border-radius: ${btnRadius}; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">💬 WhatsApp Sipariş</a>` : ''}
+                ${phone ? `<a href="https://wa.me/90${phone.replace(/\D/g, '')}" target="_blank" rel="noopener" style="color: ${heroTextColor}; border: 1px solid var(--border, #cbd5e1); background: var(--bg-surface, #ffffff); padding: 12px 22px; border-radius: ${btnRadius}; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">💬 WhatsApp Danışma</a>` : ''}
               </div>
             </div>
       `;
       const rightCol = `
-            <div class="split-hero-visual" data-reference-role="hero_media" style="background: linear-gradient(145deg, #064e3b, #0f172a); border: 1px solid #047857; border-radius: 20px; padding: 32px; color: #ffffff; box-shadow: 0 20px 40px rgba(6,78,59,0.25);">
+            <div class="split-hero-visual" data-reference-role="hero_media" style="background: linear-gradient(145deg, #0f172a, #1e293b); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 32px; color: #ffffff; box-shadow: 0 20px 40px rgba(0,0,0,0.35);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <span style="font-size: 0.8rem; text-transform: uppercase; color: #34d399; font-weight: 700; letter-spacing: 1px;">★ 5.0 Google Puanı</span>
-                <span style="background: rgba(255,255,255,0.15); font-size: 0.75rem; padding: 3px 10px; border-radius: 12px;">Yetkili Satıcı</span>
+                <span style="font-size: 0.8rem; text-transform: uppercase; color: #fbbf24; font-weight: 700; letter-spacing: 1px;">★ 5.0 Müşteri Memnuniyeti</span>
+                <span style="background: rgba(37,99,235,0.25); color: #60a5fa; font-size: 0.75rem; padding: 3px 10px; border-radius: 12px; font-weight: 600;">Yetkili & Sertifikalı</span>
               </div>
               <h3 style="font-size: 1.5rem; font-weight: 800; line-height: 1.3; margin-bottom: 16px; color: #fff;">${companyName} Kalite Standartları</h3>
               <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
-                <div style="display: flex; gap: 10px; align-items: center;"><span style="color: #34d399;">✔</span><span style="font-size: 0.92rem;">%100 Orijinal Mama & Distribütör Güvencesi</span></div>
-                <div style="display: flex; gap: 10px; align-items: center;"><span style="color: #34d399;">✔</span><span style="font-size: 0.92rem;">Aynı Gün Hızlı Kapıya Teslimat</span></div>
-                <div style="display: flex; gap: 10px; align-items: center;"><span style="color: #34d399;">✔</span><span style="font-size: 0.92rem;">Irka & Yaşa Özel Beslenme Desteği</span></div>
+                <div style="display: flex; gap: 10px; align-items: center;"><span style="color: #10b981;">✔</span><span style="font-size: 0.92rem;">Uluslararası Standartlar ve Kalite Güvencesi</span></div>
+                <div style="display: flex; gap: 10px; align-items: center;"><span style="color: #10b981;">✔</span><span style="font-size: 0.92rem;">Hızlı Keşif ve Zamanında Teslimat Garantisi</span></div>
+                <div style="display: flex; gap: 10px; align-items: center;"><span style="color: #10b981;">✔</span><span style="font-size: 0.92rem;">Uzman Mühendislik & 7/24 Kesintisiz Destek</span></div>
               </div>
             </div>
       `;
@@ -1058,23 +1058,23 @@ function renderSpecDrivenCorporateHome({
 
     if (isEditorial) {
       return `
-        <section data-reference-section="hero" class="layout-editorial-hero" style="${heightStyle} padding: 90px 20px 50px; max-width: ${containerMaxWidth}; margin: 0 auto; border-top: 2px solid ${palette.primary || '#065f46'};">
+        <section data-reference-section="hero" class="layout-editorial-hero" style="${heightStyle} padding: 90px 20px 50px; max-width: ${containerMaxWidth}; margin: 0 auto; border-top: 2px solid ${palette.primary || '#2563eb'};">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border, #e2e8f0); padding-bottom: 12px;">
-            <span style="font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: ${palette.primary || '#065f46'};">${industry || 'EVCİL HAYVAN BESLENMESİ'} / KURUMSAL KATALOG</span>
-            <span style="font-size: 0.85rem; color: ${subTextColor};">Kurumsal PetShop &bull; 2026 Edisyonu</span>
+            <span style="font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: ${palette.primary || '#2563eb'};">${(industry || 'KURUMSAL').toUpperCase()} / RESMİ KATALOG</span>
+            <span style="font-size: 0.85rem; color: ${subTextColor};">Kurumsal Çözümler &bull; 2026 Edisyonu</span>
           </div>
           <h1 data-reference-role="hero_headline" style="font-size: clamp(2.6rem, 6vw, 3.8rem); font-weight: 900; letter-spacing: -0.04em; color: ${heroTextColor}; line-height: 1.08; margin-bottom: 30px;">
             ${slogan || companyName}
           </h1>
           <div class="editorial-intro-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: ${cardGap}; margin-bottom: 40px;">
-            <div style="font-size: 1.25rem; font-style: italic; color: ${subTextColor}; line-height: 1.6; border-left: 3px solid ${palette.primary || '#065f46'}; padding-left: 20px;">
-              "${description || 'Dostlarınız için sağlıklı ve taze beslenme ürünleri.'}"
+            <div style="font-size: 1.25rem; font-style: italic; color: ${subTextColor}; line-height: 1.6; border-left: 3px solid ${palette.primary || '#2563eb'}; padding-left: 20px;">
+              "${description || `${companyName} sektörde güvenilir, inovatif ve sürdürülebilir kurumsal çözümler sunar.`}"
             </div>
             <div>
               <p style="color: ${subTextColor}; font-size: 1rem; line-height: 1.7; margin-bottom: 20px;">
-                Yetkili distribütör garantisiyle ${companyName}, evcil hayvanlarınızın yaşam kalitesini artıracak en seçkin ürünleri sunar.
+                Yetkili mühendislik ve kalite standartlarıyla ${companyName}, operasyonel verimliliğinizi artıracak en seçkin çözümleri sunar.
               </p>
-              <a href="#teklif" data-reference-role="cta_button" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 800; color: ${palette.primary || '#065f46'}; text-decoration: none; border-bottom: 2px solid ${palette.primary || '#065f46'}; padding-bottom: 2px;">
+              <a href="#teklif" data-reference-role="cta_button" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 800; color: ${palette.primary || '#2563eb'}; text-decoration: none; border-bottom: 2px solid ${palette.primary || '#2563eb'}; padding-bottom: 2px;">
                 Ürünleri ve Hizmetleri İnceleyin &rarr;
               </a>
             </div>
@@ -1086,18 +1086,18 @@ function renderSpecDrivenCorporateHome({
     if (isMinimal) {
       return `
         <section data-reference-section="hero" class="layout-minimal-hero" style="${heightStyle} padding: 70px 20px 40px; max-width: ${containerMaxWidth}; margin: 0 auto;">
-          <div style="display: inline-block; background: rgba(16, 185, 129, 0.12); color: ${palette.primary || '#065f46'}; font-weight: 700; font-size: 0.85rem; padding: 6px 14px; border-radius: var(--radius-full, 9999px); margin-bottom: 16px;">
-            ${industry || 'PetShop & Hayvan Bakımı'}
+          <div style="display: inline-block; background: rgba(37, 99, 235, 0.12); color: ${palette.primary || '#2563eb'}; font-weight: 700; font-size: 0.85rem; padding: 6px 14px; border-radius: var(--radius-full, 9999px); margin-bottom: 16px;">
+            ${industry || 'Kurumsal Hizmetler & Çözümler'}
           </div>
           <h1 data-reference-role="hero_headline" style="font-size: clamp(2.4rem, 5.5vw, 3.5rem); font-weight: 800; letter-spacing: -0.03em; color: ${heroTextColor}; line-height: 1.15; margin-bottom: 20px; max-width: 900px;">
             ${slogan || companyName}
           </h1>
           <p style="font-size: 1.15rem; color: ${subTextColor}; line-height: 1.7; margin-bottom: 30px; max-width: 750px;">
-            ${description || 'Balıkesir’de evcil dostlarınız için güvenilir mama, kum ve bakım ürünleri.'}
+            ${description || `${companyName}, en yüksek kalite standartlarında profesyonel kurumsal hizmetler sunmaktadır.`}
           </p>
           <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
             <a href="#teklif" data-reference-role="cta_button" style="background: ${brandAccent}; color: #ffffff; padding: 14px 28px; border-radius: ${btnRadius}; font-weight: 700; text-decoration: none;">
-              Ürünleri İncele &rarr;
+              Hizmetleri İncele &rarr;
             </a>
             ${phone ? `<a href="tel:${phone}" style="color: ${heroTextColor}; border: 1px solid var(--border, #cbd5e1); padding: 13px 22px; border-radius: ${btnRadius}; font-weight: 600; text-decoration: none;">📞 ${phone}</a>` : ''}
           </div>
@@ -1108,18 +1108,18 @@ function renderSpecDrivenCorporateHome({
     // Default Centered Hero
     return `
       <section data-reference-section="hero" class="layout-centered-hero" style="${heightStyle} padding: ${isCompact ? '12px 20px 8px' : '85px 20px 60px'}; text-align: center; max-width: ${containerMaxWidth}; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-        <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: ${isCompact ? '2px 10px' : '6px 16px'}; border-radius: var(--radius-full, 9999px); font-size: ${isCompact ? '0.72rem' : '0.85rem'}; color: ${palette.primary || '#065f46'}; font-weight: 700; margin-bottom: ${isCompact ? '4px' : '20px'};">
-          <span>🐾</span> ${industry || 'Güvenilir Mama & Bakım Ürünleri'} &bull; Balıkesir
+        <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(37, 99, 235, 0.3); padding: ${isCompact ? '2px 10px' : '6px 16px'}; border-radius: var(--radius-full, 9999px); font-size: ${isCompact ? '0.72rem' : '0.85rem'}; color: ${palette.primary || '#2563eb'}; font-weight: 700; margin-bottom: ${isCompact ? '4px' : '20px'};">
+          <span>⚡</span> ${industry || 'Kurumsal Çözümler'} &bull; Güvenilir Mühendislik & Hizmet
         </div>
         <h1 class="hero-title-responsive" data-reference-role="hero_headline" style="font-size: ${isCompact ? 'clamp(1.2rem, 2.2vw, 1.55rem)' : 'clamp(2.4rem, 5.5vw, 3.6rem)'}; font-weight: 800; line-height: 1.15; color: ${heroTextColor}; margin-bottom: ${isCompact ? '4px' : '18px'}; letter-spacing: -0.02em;">
           ${slogan || companyName}
         </h1>
         <p style="font-size: ${isCompact ? '0.8rem' : '1.15rem'}; color: ${subTextColor}; line-height: ${isCompact ? '1.35' : '1.75'}; margin-bottom: ${isCompact ? '8px' : '30px'}; max-width: ${isCompact ? '650px' : '720px'}; margin-left: auto; margin-right: auto; ${isCompact ? 'max-height: 2.7em; overflow: hidden;' : ''}">
-          ${description || 'Balıkesir’de evcil dostlarınız için güvenilir mama, kum ve kaliteli bakım ürünleri.'}
+          ${description || `${companyName}, alanında uzman kadrosu ve ileri teknoloji altyapısıyla en yüksek kalite standartlarında çözümler sunmaktadır.`}
         </p>
         <div style="display: flex; justify-content: center; gap: ${isCompact ? '10px' : '16px'}; flex-wrap: wrap;">
-          <a href="#teklif" data-reference-role="cta_button" style="background: ${brandAccent}; color: #ffffff; padding: ${isCompact ? '7px 18px' : '15px 32px'}; border-radius: ${btnRadius}; font-weight: 700; font-size: ${isCompact ? '0.82rem' : '1rem'}; text-decoration: none; box-shadow: 0 4px 14px rgba(16,185,129,0.3); display: inline-flex; align-items: center; gap: 6px;">
-            <span>🛒</span> Ürünleri İncele &rarr;
+          <a href="#teklif" data-reference-role="cta_button" style="background: ${brandAccent}; color: #ffffff; padding: ${isCompact ? '7px 18px' : '15px 32px'}; border-radius: ${btnRadius}; font-weight: 700; font-size: ${isCompact ? '0.82rem' : '1rem'}; text-decoration: none; box-shadow: 0 4px 14px rgba(37,99,235,0.3); display: inline-flex; align-items: center; gap: 6px;">
+            <span>📋</span> Hizmetleri İncele &rarr;
           </a>
           ${phone ? `<a href="tel:${phone}" style="color: ${heroTextColor}; border: 1px solid var(--border, #cbd5e1); background: var(--bg-surface, #ffffff); padding: ${isCompact ? '6px 14px' : '14px 26px'}; border-radius: ${btnRadius}; font-weight: 600; font-size: ${isCompact ? '0.8rem' : '1rem'}; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">📞 ${phone}</a>` : ''}
         </div>
