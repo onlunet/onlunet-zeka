@@ -324,6 +324,36 @@ function listProjects(workspaceRoot) {
   return projects;
 }
 
+function deleteProject(workspaceRoot, projectId) {
+  if (!projectId || typeof projectId !== 'string') {
+    return { success: false, error: 'Geçersiz projectId parametresi.' };
+  }
+  const cleanId = path.basename(projectId.trim());
+  if (!cleanId || cleanId !== projectId.trim() || projectId.includes('..')) {
+    return { success: false, error: 'Güvenlik engeli: Geçersiz proje kimliği.' };
+  }
+  const targetDirAbs = path.resolve(workspaceRoot, 'projeler', cleanId);
+  if (!fs.existsSync(targetDirAbs)) {
+    return { success: false, error: `Proje klasörü bulunamadı: ${cleanId}` };
+  }
+
+  // If this project is currently running, stop it first
+  if (activeProjectProcess && (activeProjectProcess.projectId === cleanId || path.resolve(activeProjectProcess.targetDir) === targetDirAbs)) {
+    stopRunningProject();
+  }
+
+  try {
+    fs.rmSync(targetDirAbs, { recursive: true, force: true });
+    return {
+      success: true,
+      projectId: cleanId,
+      message: `"${cleanId}" projesi ve tüm dosyaları başarıyla silindi.`
+    };
+  } catch (err) {
+    return { success: false, error: `Proje silinirken hata oluştu: ${err.message}` };
+  }
+}
+
 /**
  * FAZ 74.2: Canonical Corporate Target Directory Validator
  * Enforces boundary containment and blocks path traversal attacks.
@@ -1686,6 +1716,18 @@ export function createApplicationServer({
           success: true,
           message: 'Proje sunucusu durduruldu.'
         });
+      }
+
+      // 3.9.0 Delete Project API
+      if (req.method === 'POST' && req.url === '/api/projects/delete') {
+        const body = await readBody();
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
+        const projectId = body.projectId || (body.targetDirectory ? path.basename(body.targetDirectory) : null);
+        if (!projectId) {
+          return sendJson(400, { success: false, error: 'projectId parametresi gereklidir.' });
+        }
+        const delRes = deleteProject(root, projectId);
+        return sendJson(delRes.success ? 200 : 400, delRes);
       }
 
       // 3.9.1 GrapesJS Web Builder Get Project Content API

@@ -4841,6 +4841,9 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
                   <button onclick="deployProjectModal('${p.id || p.slug || (p.targetDirectory ? p.targetDirectory.replace('projeler/', '') : '')}')" class="corp-preset-btn" style="padding: 6px 12px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px; background: rgba(99, 102, 241, 0.15); border-color: rgba(99, 102, 241, 0.4); color: #818cf8;">
                     <span>🚀</span> Yayınla
                   </button>
+                  <button onclick="deleteProject('${p.id}')" class="btn-cancel" style="padding: 6px 12px; font-size: 0.8rem; background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); color: #f87171; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Projeyi Kalıcı Olarak Sil">
+                    <span>🗑️</span> Sil
+                  </button>
                 </div>
                 <div style="display: flex; gap: 8px;">
                   <a href="${p.url}" target="_blank" class="btn-approve" style="text-decoration: none; padding: 6px 12px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
@@ -4889,6 +4892,28 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
           await loadProjects();
         } else {
           alert('Durdurma hatası: ' + (data.error || 'Bilinmeyen hata'));
+        }
+      } catch (err) {
+        alert('Sunucu hatası: ' + err.message);
+      }
+    }
+
+    async function deleteProject(projectId) {
+      if (!confirm(`⚠️ DİKKAT: "${projectId}" projesini ve tüm dosyalarını/veritabanını kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/projects/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`✓ "${projectId}" projesi başarıyla silindi.`);
+          await loadProjects();
+        } else {
+          alert('Silme hatası: ' + (data.error || 'Bilinmeyen hata'));
         }
       } catch (err) {
         alert('Sunucu hatası: ' + err.message);
