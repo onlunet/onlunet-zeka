@@ -41,7 +41,7 @@ describe('FAZ 66: Gemini Response Canonical Normalization', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyTest1234567890' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_Test1234567890' });
       const res = await adapter.invoke({ prompt: 'Optimize db pool' });
 
       assert.strictEqual(res.providerId, 'gemini');
@@ -82,7 +82,7 @@ describe('FAZ 66: Gemini Response Canonical Normalization', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyTest1234567890' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_Test1234567890' });
       const res = await adapter.invoke({ prompt: 'Run block test' });
       assert.strictEqual(res.rationale, 'Embedded json test');
       assert.deepStrictEqual(res.operations, []);

@@ -17,7 +17,7 @@ describe('FAZ 66: Gemini Observability & Audit Telemetry', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyTestKey' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_TestKey' });
       const res = await adapter.invoke({ prompt: 'Telemetry test' });
 
       assert.strictEqual(typeof res.latencyMs, 'number');

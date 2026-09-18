@@ -145,7 +145,7 @@ The credential sanitizer (`src/providers/credential-sanitizer.js`) was audited a
 | :--- | :--- | :--- |
 | **OpenAI Keys** | `sk-abc1234567890abcdef123456` | `***REDACTED***` |
 | **Anthropic Keys** | `sk-ant-abc1234567890abcdef123456` | `***REDACTED***` |
-| **Google Gemini Keys** | `AIzaSyD1234567890abcdef1234567890abc` | `***REDACTED***` |
+| **Google Gemini Keys** | `MOCK_GEMINI_KEY_D1234567890abcdef1234567890abc` | `***REDACTED***` |
 | **Supabase Service Keys** | `sbp_abcdef1234567890abcdef123456` | `***REDACTED***` |
 | **Database Connection Strings** | `postgres://admin:secret_pass123@db.com:5432/main` | `postgres://admin:***REDACTED***@db.com:5432/main` |
 | **JWT Bearer Tokens** | `eyJhbGciOi...eyJzdWIi...dozqvPtqP25...` | `***REDACTED***` |

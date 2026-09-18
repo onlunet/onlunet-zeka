@@ -38,13 +38,13 @@ describe('FAZ 66: Gemini HTTP Loopback E2E Lifecycle', () => {
     try {
       const adapter = createGoogleProviderAdapter({
         providerId: 'gemini',
-        apiKey: 'AIzaSyE2ETestKey123',
+        apiKey: 'MOCK_GEMINI_KEY_E2ETestKey123',
         baseURL,
         model: 'gemini-1.5-flash'
       });
 
       const result = await adapter.invoke({ prompt: 'Run e2e integration' });
-      assert.strictEqual(receivedHeader, 'AIzaSyE2ETestKey123');
+      assert.strictEqual(receivedHeader, 'MOCK_GEMINI_KEY_E2ETestKey123');
       assert.strictEqual(result.rationale, 'HTTP e2e pass');
       assert.strictEqual(result.providerId, 'gemini');
       assert.strictEqual(result.usage.totalTokens, 40);

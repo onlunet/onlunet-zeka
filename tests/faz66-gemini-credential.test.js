@@ -37,7 +37,7 @@ describe('FAZ 66: Gemini Credential & Health Discovery', () => {
   });
 
   it('3. Recognizes explicit apiKey in constructor', async () => {
-    const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyFakeKeyForTestOnly1234567890' });
+    const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_FakeKeyForTestOnly1234567890' });
     assert.strictEqual(adapter.hasCredentials, true);
     const health = await adapter.checkHealth();
     assert.strictEqual(health.status, 'HEALTHY');
@@ -45,7 +45,7 @@ describe('FAZ 66: Gemini Credential & Health Discovery', () => {
   });
 
   it('4. Never leaks raw secret in stringified adapter or health output', async () => {
-    const secret = 'AIzaSySecretTestKeyThatMustNotLeak12345';
+    const secret = 'MOCK_GEMINI_KEY_SecretTestKeyThatMustNotLeak12345';
     const adapter = createGeminiProviderAdapter({ apiKey: secret });
     const str = JSON.stringify(adapter);
     assert.ok(!str.includes(secret), 'Raw API key must not be present in serialized adapter');

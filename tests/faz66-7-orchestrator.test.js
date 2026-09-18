@@ -428,7 +428,7 @@ describe('FAZ 66.7: Provider-Agnostic AI Resource Orchestrator', () => {
     const mockNvApiKey = 'nvapi-TESTSECRET12345678901234567890';
     const mockGskKey = 'gsk_TESTSECRET12345678901234567890';
     const mockSkKey = 'sk-mbrTESTSECRET12345678901234567890';
-    const mockAizaKey = 'AIzaSyTESTSECRET1234567890123456789012';
+    const mockAizaKey = 'MOCK_GEMINI_KEY_TESTSECRET1234567890123456789012';
 
     const testStr = `Errors: ${mockNvApiKey} and ${mockGskKey} and ${mockSkKey} and ${mockAizaKey}`;
     const sanitized = sanitizeString(testStr);

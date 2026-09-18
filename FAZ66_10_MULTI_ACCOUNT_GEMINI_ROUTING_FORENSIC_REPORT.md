@@ -67,7 +67,7 @@ Supports automatic scanning of environment variables matching:
 - All credentials are represented in telemetry, audit logs, and reports solely by:
   - `accountId` (e.g. `gemini-account-01`)
   - `fingerprint` (12-char truncated SHA-256 hash)
-- Raw secret strings (`AIzaSy...`) are stored in memory only within the secure pool vault and are strictly redacted from any stringified objects, stack traces, and JSON outputs.
+- Raw secret strings (`MOCK_GEMINI_KEY_...`) are stored in memory only within the secure pool vault and are strictly redacted from any stringified objects, stack traces, and JSON outputs.
 
 ---
 

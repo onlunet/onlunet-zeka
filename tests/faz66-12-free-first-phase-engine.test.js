@@ -404,7 +404,7 @@ describe('FAZ 66.12: Free-First Autonomous Phase Engine Suite', () => {
   // Test J: Zero Secret Leakage
   it('Test J: Guarantees API keys and secrets never appear in telemetry, logs, or evidence', () => {
     const collector = createEvidenceCollector({ phaseId: 'FAZ-66.12-TEST-J' });
-    const fakeKey = 'AIzaSySecretRealKey999999999999999999';
+    const fakeKey = 'MOCK_GEMINI_KEY_SecretRealKey999999999999999999';
 
     collector.recordTestResult({
       testName: 'Security Audit',

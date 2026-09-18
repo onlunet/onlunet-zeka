@@ -39,9 +39,9 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   it('TEST 1: 3 credential discovery (A, B, C)', () => {
     const originalEnv = { ...process.env };
     try {
-      process.env.GEMINI_ACCOUNT_A_API_KEY = 'AIzaSyAccountAValidKey11111111111111';
-      process.env.GEMINI_ACCOUNT_B_API_KEY = 'AIzaSyAccountBValidKey22222222222222';
-      process.env.GEMINI_ACCOUNT_C_API_KEY = 'AIzaSyAccountCValidKey33333333333333';
+      process.env.GEMINI_ACCOUNT_A_API_KEY = 'MOCK_GEMINI_KEY_AccountAValidKey11111111111111';
+      process.env.GEMINI_ACCOUNT_B_API_KEY = 'MOCK_GEMINI_KEY_AccountBValidKey22222222222222';
+      process.env.GEMINI_ACCOUNT_C_API_KEY = 'MOCK_GEMINI_KEY_AccountCValidKey33333333333333';
 
       const pool = createCredentialPool({ autoDiscoverEnv: true });
       const creds = pool.listCredentials({ providerId: 'gemini' });
@@ -66,8 +66,8 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 2: A returns 429, B returns 200 -> A isolated, B selected
   it('TEST 2: A returns 429 -> A isolated, B (200) selected', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'AIzaSyKeyA11111111111111111111111111', priority: 1 });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'AIzaSyKeyB22222222222222222222222222', priority: 2 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'MOCK_GEMINI_KEY_KeyA11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'MOCK_GEMINI_KEY_KeyB22222222222222222222222222', priority: 2 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -119,8 +119,8 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 3: A returns 401, B returns 200 -> A AUTH_FAILED, B selected
   it('TEST 3: A returns 401 -> A AUTH_FAILED, B (200) selected', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'AIzaSyKeyA11111111111111111111111111', priority: 1 });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'AIzaSyKeyB22222222222222222222222222', priority: 2 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'MOCK_GEMINI_KEY_KeyA11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'MOCK_GEMINI_KEY_KeyB22222222222222222222222222', priority: 2 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -166,8 +166,8 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 4: A + Model X 429 -> B + Model X 200 (same model, cross-credential failover, no substitution)
   it('TEST 4: A + Model X 429 -> B + Model X 200 (same model, no substitution)', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'AIzaSyKeyA11111111111111111111111111', priority: 1 });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'AIzaSyKeyB22222222222222222222222222', priority: 2 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'MOCK_GEMINI_KEY_KeyA11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'MOCK_GEMINI_KEY_KeyB22222222222222222222222222', priority: 2 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -215,8 +215,8 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 5: A + Model X 429, B + Model X 429 -> B + Model Y 200 (model substitution with explicit telemetry)
   it('TEST 5: A + Model X 429, B + Model X 429 -> B + Model Y 200 (explicit substitution telemetry)', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'AIzaSyKeyA11111111111111111111111111', priority: 1 });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'AIzaSyKeyB22222222222222222222222222', priority: 2 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'MOCK_GEMINI_KEY_KeyA11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'MOCK_GEMINI_KEY_KeyB22222222222222222222222222', priority: 2 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -264,7 +264,7 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 6: SIMPLE task routes to economy/appropriate model
   it('TEST 6: SIMPLE task routes to economy/appropriate model', () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key11111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -310,7 +310,7 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 7: COMPLEX task routes to highest available LIVE_CERTIFIED capability tier
   it('TEST 7: COMPLEX task routes to highest available LIVE_CERTIFIED capability tier', () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key11111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -365,7 +365,7 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 8: Discovered model giving 429 in live call remains DISCOVERED=true, LIVE_CERTIFIED=false, AVAILABLE=false
   it('TEST 8: Discovered model giving 429 remains DISCOVERED=true, LIVE_CERTIFIED=false, AVAILABLE=false', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key11111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -415,7 +415,7 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 9: Successful real API call proves actualModel and modelVersion
   it('TEST 9: Successful real API call proves actualModel and modelVersion', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key11111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -454,7 +454,7 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 10: Explicit preferredModel is preserved and not overridden by automatic routing
   it('TEST 10: Explicit preferredModel is preserved and not overridden by automatic routing', () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key11111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });
@@ -496,8 +496,8 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 11: All Gemini credentials fail -> provider failover executes (Groq / NVIDIA / Local)
   it('TEST 11: All Gemini credentials fail -> provider failover executes', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'AIzaSyKeyA11111111111111111111111111', priority: 1 });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'AIzaSyKeyB22222222222222222222222222', priority: 2 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-a', apiKey: 'MOCK_GEMINI_KEY_KeyA11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-b', apiKey: 'MOCK_GEMINI_KEY_KeyB22222222222222222222222222', priority: 2 });
     pool.registerCredential({ providerId: 'groq', credentialId: 'groq-account-1', apiKey: 'gsk_ValidGroqKey111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
@@ -543,7 +543,7 @@ describe('FAZ 66.11: Multi-Account Gemini Matrix & Strongest Model Selection', (
   // TEST 12: All outcomes strictly preserve proposalOnly: true, executionAuthorized: false, requiresApproval: true
   it('TEST 12: All outcomes strictly preserve zero AI authority contracts', async () => {
     const pool = createCredentialPool({ autoDiscoverEnv: false });
-    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey11111111111111111111111111', priority: 1 });
+    pool.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key11111111111111111111111111', priority: 1 });
 
     const registry = createProviderRegistry({ includeBuiltins: false });
     const modelRegistry = createModelRegistry({ includeBuiltins: false });

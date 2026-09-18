@@ -16,5 +16,5 @@
 
 ## 3. Security Verification
 - **Header Masking**: `x-goog-api-key` automatically sanitized to `***REDACTED***` by `sanitizeHeaders`.
-- **String Sanitization**: `AIzaSy...` key formats automatically masked to `***REDACTED***` by `sanitizeString`.
+- **String Sanitization**: `MOCK_GEMINI_KEY_...` key formats automatically masked to `***REDACTED***` by `sanitizeString`.
 - **Adapter Immutability**: Adapter object and its capabilities array are deeply frozen.

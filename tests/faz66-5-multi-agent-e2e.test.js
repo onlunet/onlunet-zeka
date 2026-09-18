@@ -446,7 +446,7 @@ describe('FAZ 66.5: Real Multi-Agent Orchestration E2E Architecture', () => {
       capabilities: ['TEXT'],
       async invoke() {
         return {
-          rationale: 'Analysis generated with key sk-openai12345678901234567890abcdef and AIzaSyGeminiKey1234567890abcdef123456',
+          rationale: 'Analysis generated with key sk-openai12345678901234567890abcdef and MOCK_GEMINI_KEY_GeminiKey1234567890abcdef123456',
           operations: [{ type: 'ANALYZE', target: 'specs/test.json', description: 'Key: gsk_groqKey1234567890abcdef' }],
           proposedFiles: ['specs/test.json']
         };
@@ -472,7 +472,7 @@ describe('FAZ 66.5: Real Multi-Agent Orchestration E2E Architecture', () => {
 
     const serialized = JSON.stringify(result);
     assert.ok(!serialized.includes('sk-openai12345678901234567890abcdef'), 'OpenAI key must be scrubbed');
-    assert.ok(!serialized.includes('AIzaSyGeminiKey1234567890abcdef123456'), 'Gemini key must be scrubbed');
+    assert.ok(!serialized.includes('MOCK_GEMINI_KEY_GeminiKey1234567890abcdef123456'), 'Gemini key must be scrubbed');
     assert.ok(serialized.includes('***REDACTED***'), 'Sanitizer must replace secrets with ***REDACTED***');
   });
 

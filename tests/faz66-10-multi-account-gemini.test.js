@@ -59,8 +59,8 @@ describe('FAZ 66.10: Multi-Account Gemini Pro Pool & Intelligent Model Routing',
     const savedEnv1 = process.env.GEMINI_ACCOUNT_1_API_KEY;
     const savedEnv2 = process.env.GEMINI_ACCOUNT_2_API_KEY;
     try {
-      process.env.GEMINI_ACCOUNT_1_API_KEY = 'AIzaSyMockKeyAccount1_TestA';
-      process.env.GEMINI_ACCOUNT_2_API_KEY = 'AIzaSyMockKeyAccount2_TestA';
+      process.env.GEMINI_ACCOUNT_1_API_KEY = 'MOCK_GEMINI_KEY_MockKeyAccount1_TestA';
+      process.env.GEMINI_ACCOUNT_2_API_KEY = 'MOCK_GEMINI_KEY_MockKeyAccount2_TestA';
 
       const pool = createCredentialPool({ autoDiscoverEnv: true });
       const creds = pool.listCredentials({ providerId: 'gemini' });
@@ -85,11 +85,11 @@ describe('FAZ 66.10: Multi-Account Gemini Pro Pool & Intelligent Model Routing',
     const pool1 = createCredentialPool({ autoDiscoverEnv: false });
     const pool2 = createCredentialPool({ autoDiscoverEnv: false });
 
-    pool1.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey1' });
-    pool1.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-2', apiKey: 'AIzaSyKey2' });
+    pool1.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key1' });
+    pool1.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-2', apiKey: 'MOCK_GEMINI_KEY_Key2' });
 
-    pool2.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'AIzaSyKey1' });
-    pool2.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-2', apiKey: 'AIzaSyKey2' });
+    pool2.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-1', apiKey: 'MOCK_GEMINI_KEY_Key1' });
+    pool2.registerCredential({ providerId: 'gemini', credentialId: 'gemini-account-2', apiKey: 'MOCK_GEMINI_KEY_Key2' });
 
     const list1 = pool1.listCredentials({ providerId: 'gemini' });
     const list2 = pool2.listCredentials({ providerId: 'gemini' });
@@ -104,7 +104,7 @@ describe('FAZ 66.10: Multi-Account Gemini Pro Pool & Intelligent Model Routing',
 
   // Test C: Secrets never appear in telemetry
   it('C — Secrets never appear in telemetry', async () => {
-    const secretKey = 'AIzaSySecretRawKeyDoNotExpose_9876543210';
+    const secretKey = 'MOCK_GEMINI_KEY_SecretRawKeyDoNotExpose_9876543210';
     const pool = createCredentialPool({ autoDiscoverEnv: false });
     pool.registerCredential({
       providerId: 'gemini',
@@ -145,7 +145,7 @@ describe('FAZ 66.10: Multi-Account Gemini Pro Pool & Intelligent Model Routing',
 
     const serialized = JSON.stringify(result);
     assert.strictEqual(serialized.includes(secretKey), false, 'Raw API key must never appear in result');
-    assert.strictEqual(serialized.includes('AIzaSySecretRawKey'), false);
+    assert.strictEqual(serialized.includes('MOCK_GEMINI_KEY_SecretRawKey'), false);
     assert.ok(result.credentialFingerprint, 'Fingerprint must be present');
     assert.strictEqual(result.credentialFingerprint.length, 12, 'Fingerprint must be 12-char SHA-256 slice');
     assert.strictEqual(result.accountId, 'gemini-account-1');
@@ -648,7 +648,7 @@ describe('FAZ 66.10: Multi-Account Gemini Pro Pool & Intelligent Model Routing',
       pool.registerCredential({
         providerId: 'gemini',
         credentialId: `gemini-account-${i}`,
-        apiKey: `AIzaSyKey_Account_${i}`,
+        apiKey: `MOCK_GEMINI_KEY_Key_Account_${i}`,
         priority: i
       });
     }

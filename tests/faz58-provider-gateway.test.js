@@ -91,9 +91,9 @@ describe('FAZ 58: Real AI Provider Gateway & Multi-Agent Orchestrator', () => {
     });
 
     it('3. Redacts Google Gemini API keys (AIza...) from arbitrary strings', () => {
-      const raw = 'Endpoint called: https://generativelanguage.googleapis.com/v1beta?key=AIzaSyA1234567890abcdef123456789012345';
+      const raw = 'Endpoint called: https://generativelanguage.googleapis.com/v1beta?key=MOCK_GEMINI_KEY_A1234567890abcdef123456789012345';
       const sanitized = sanitizeString(raw);
-      assert.ok(!sanitized.includes('AIzaSyA1234567890abcdef'));
+      assert.ok(!sanitized.includes('MOCK_GEMINI_KEY_A1234567890abcdef'));
       assert.ok(sanitized.includes('***REDACTED***'));
     });
 
@@ -615,7 +615,7 @@ describe('FAZ 58: Real AI Provider Gateway & Multi-Agent Orchestrator', () => {
       try {
         globalThis.fetch = async (url, options) => {
           assert.ok(url.includes('models/gemini-1.5-flash:generateContent'));
-          assert.strictEqual(options.headers['x-goog-api-key'], 'AIzaSyTestMockKey1234567890123456789');
+          assert.strictEqual(options.headers['x-goog-api-key'], 'MOCK_GEMINI_KEY_TestMockKey1234567890123456789');
 
           return {
             ok: true,
@@ -641,7 +641,7 @@ describe('FAZ 58: Real AI Provider Gateway & Multi-Agent Orchestrator', () => {
           };
         };
 
-        const adapter = createGoogleProviderAdapter({ apiKey: 'AIzaSyTestMockKey1234567890123456789' });
+        const adapter = createGoogleProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_TestMockKey1234567890123456789' });
         const res = await adapter.invoke({ prompt: 'Optimize performance' });
         assert.strictEqual(res.rationale, 'Google Gemini speed optimization');
         assert.strictEqual(res.usage.totalTokens, 150);

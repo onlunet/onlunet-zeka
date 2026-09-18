@@ -24,7 +24,7 @@ The Prompt Security Sanitizer (`src/control-plane/prompt-security.js`) was subje
 ## 2. Credential Sanitization & Secret Scrubbing
 
 All outbound prompts, inbound completions, error stacks, diagnostic telemetry, and audit ledger entries pass through `sanitizeCredentials` in `src/providers/credential-sanitizer.js`:
-- Synthetic API keys (`sk-ant-...`, `sk-proj-...`, `AIzaSy...`): Scrubbed to `[REDACTED]`.
+- Synthetic API keys (`sk-ant-...`, `sk-proj-...`, `MOCK_GEMINI_KEY_...`): Scrubbed to `[REDACTED]`.
 - Database URLs with passwords (`postgres://user:password@host/db`): Scrubbed.
 - Bearer JWT tokens: Scrubbed.
 - Verification: JSON serialization of audit events with injected secrets verified **ZERO RAW SECRET LEAKAGE**.

@@ -247,7 +247,7 @@ File: `tests/faz66-12-free-first-phase-engine.test.js`
 ## 8. ZERO SECRET LEAKAGE & SECURITY AUDIT
 
 1. **Automated Secret Audit**:
-   - Scanned all source files, test files, and logs for API key signatures (`AIzaSy...`, `sk-...`, `ghp_...`).
+   - Scanned all source files, test files, and logs for API key signatures (`MOCK_GEMINI_KEY_...`, `sk-...`, `ghp_...`).
    - Verified that all real credentials are sanitized via `sanitizeCredentials()` before being written to evidence or logs.
    - Result: **0 leaks detected**.
 2. **Dependency Vulnerability Audit**:

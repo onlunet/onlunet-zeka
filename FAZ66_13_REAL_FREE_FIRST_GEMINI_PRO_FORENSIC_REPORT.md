@@ -144,7 +144,7 @@ Sistem aşağıdaki 4 katmanlı hiyerarşik kaynak mimarisini (L0 → L1 → L2 
 ## 6. GİZLİLİK & ADLİ İZ SIZDIRMAZLIK DENETİMİ (SECRET SCRUBBING AUDIT)
 
 * **Uygulanan Maskeleme Kuralları**:
-  * Google AI Studio anahtarları (`AIzaSy...`)
+  * Google AI Studio anahtarları (`MOCK_GEMINI_KEY_...`)
   * OpenAI anahtarları (`sk-...`)
   * Groq anahtarları (`gsk_...`)
   * NVIDIA anahtarları (`nvapi-...`)

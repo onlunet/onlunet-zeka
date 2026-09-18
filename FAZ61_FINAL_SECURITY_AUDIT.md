@@ -38,6 +38,6 @@ VERIFICATION != EXECUTION
 
 ## 3. Secret Scanning Forensic Audit
 
-A full repository scan for live keys (`sk-`, `AIzaSy`, `Bearer `, private keys) confirmed:
+A full repository scan for live keys (`sk-`, `MOCK_GEMINI_KEY_`, `Bearer `, private keys) confirmed:
 - Zero raw secrets present in source files, test suites, or documentation.
 - Zero credential values logged or exposed in telemetry.

@@ -13,7 +13,7 @@ describe('FAZ 66: Gemini Error Code Mapping & Handling', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyInvalid' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_Invalid' });
       await assert.rejects(
         () => adapter.invoke({ prompt: 'test' }),
         (err) => {
@@ -37,7 +37,7 @@ describe('FAZ 66: Gemini Error Code Mapping & Handling', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyKey' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_Key' });
       await assert.rejects(
         () => adapter.invoke({ prompt: 'test' }),
         (err) => {
@@ -62,7 +62,7 @@ describe('FAZ 66: Gemini Error Code Mapping & Handling', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyKey' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_Key' });
       await assert.rejects(
         () => adapter.invoke({ prompt: 'test' }),
         (err) => {
@@ -85,7 +85,7 @@ describe('FAZ 66: Gemini Error Code Mapping & Handling', () => {
     };
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyKey' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_Key' });
       await assert.rejects(
         () => adapter.invoke({ prompt: 'test' }),
         (err) => {

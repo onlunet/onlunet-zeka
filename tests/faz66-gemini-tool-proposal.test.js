@@ -31,7 +31,7 @@ describe('FAZ 66: Gemini Tool Proposal Boundary', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyTestKey' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_TestKey' });
       const res = await adapter.invoke({ prompt: 'Add logging' });
       assert.strictEqual(Array.isArray(res.operations), true);
       const op = res.operations[0];

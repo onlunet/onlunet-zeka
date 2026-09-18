@@ -23,7 +23,7 @@ describe('FAZ 66: Gemini Structured Output & Schema Verification', () => {
     };
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyValidFormatKey123' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_ValidFormatKey123' });
       await adapter.invoke({
         prompt: 'Build auth service',
         agentRole: 'ARCHITECT'
@@ -32,7 +32,7 @@ describe('FAZ 66: Gemini Structured Output & Schema Verification', () => {
       assert.ok(capturedBody.systemInstruction);
       assert.ok(capturedBody.systemInstruction.parts[0].text.includes('ARCHITECT'));
       assert.strictEqual(capturedBody.generationConfig.responseMimeType, 'application/json');
-      assert.strictEqual(capturedHeaders['x-goog-api-key'], 'AIzaSyValidFormatKey123');
+      assert.strictEqual(capturedHeaders['x-goog-api-key'], 'MOCK_GEMINI_KEY_ValidFormatKey123');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -51,7 +51,7 @@ describe('FAZ 66: Gemini Structured Output & Schema Verification', () => {
     });
 
     try {
-      const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyValidFormatKey123' });
+      const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_ValidFormatKey123' });
       const res = await adapter.invoke({ prompt: 'Plain text test' });
       assert.strictEqual(res.rationale, 'Plain text output without json');
       assert.strictEqual(res.proposalOnly, true);

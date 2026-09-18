@@ -54,7 +54,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
   // Test A: Tek credential normal çalışıyor
   it('Test A: Tek credential normal çalışıyor', async () => {
     const credentialPool = createCredentialPool({ autoDiscoverEnv: false });
-    const dummyKey = 'AIzaSyTestKey_SingleAccount_01';
+    const dummyKey = 'MOCK_GEMINI_KEY_TestKey_SingleAccount_01';
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
@@ -120,13 +120,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyAccountOneHealthy',
+      apiKey: 'MOCK_GEMINI_KEY_AccountOneHealthy',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyAccountTwoStandby',
+      apiKey: 'MOCK_GEMINI_KEY_AccountTwoStandby',
       priority: 2
     });
 
@@ -174,13 +174,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyAccount01RateLimited',
+      apiKey: 'MOCK_GEMINI_KEY_Account01RateLimited',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyAccount02Healthy',
+      apiKey: 'MOCK_GEMINI_KEY_Account02Healthy',
       priority: 2
     });
 
@@ -226,7 +226,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     });
     assert.strictEqual(result.status, GatewayInvocationStatus.SUCCESS);
     assert.strictEqual(result.credentialId, 'gemini-account-02');
-    assert.strictEqual(attemptedKey, 'AIzaSyAccount02Healthy');
+    assert.strictEqual(attemptedKey, 'MOCK_GEMINI_KEY_Account02Healthy');
   });
 
   // Test D: Birinci credential QUOTA_EXCEEDED → ikinci credential seçiliyor
@@ -235,13 +235,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyAccount01QuotaExceeded',
+      apiKey: 'MOCK_GEMINI_KEY_Account01QuotaExceeded',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyAccount02Active',
+      apiKey: 'MOCK_GEMINI_KEY_Account02Active',
       priority: 2
     });
 
@@ -287,13 +287,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyInvalidKey',
+      apiKey: 'MOCK_GEMINI_KEY_InvalidKey',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyValidKey',
+      apiKey: 'MOCK_GEMINI_KEY_ValidKey',
       priority: 2
     });
 
@@ -337,13 +337,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyKey1',
+      apiKey: 'MOCK_GEMINI_KEY_Key1',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyKey2',
+      apiKey: 'MOCK_GEMINI_KEY_Key2',
       priority: 2
     });
     credentialPool.registerCredential({
@@ -410,13 +410,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyG1',
+      apiKey: 'MOCK_GEMINI_KEY_G1',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyG2',
+      apiKey: 'MOCK_GEMINI_KEY_G2',
       priority: 2
     });
 
@@ -451,7 +451,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
 
   // Test H: Credential secret'i telemetry'ye sızmıyor
   it('Test H: Credential secret\'i telemetry\'ye sızmıyor', async () => {
-    const secretKey = 'AIzaSySecretNeverExposeInLogsOrTelemetry999';
+    const secretKey = 'MOCK_GEMINI_KEY_SecretNeverExposeInLogsOrTelemetry999';
     const credentialPool = createCredentialPool({ autoDiscoverEnv: false });
     credentialPool.registerCredential({
       providerId: 'gemini',
@@ -498,13 +498,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyCertKey01',
+      apiKey: 'MOCK_GEMINI_KEY_CertKey01',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyCertKey02',
+      apiKey: 'MOCK_GEMINI_KEY_CertKey02',
       priority: 2
     });
 
@@ -556,7 +556,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyKeyJ',
+      apiKey: 'MOCK_GEMINI_KEY_KeyJ',
       priority: 1
     });
 
@@ -600,7 +600,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyKeyK',
+      apiKey: 'MOCK_GEMINI_KEY_KeyK',
       priority: 1
     });
 
@@ -644,7 +644,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyKeyL',
+      apiKey: 'MOCK_GEMINI_KEY_KeyL',
       priority: 1
     });
 
@@ -706,7 +706,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     pool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyTimeoutKey'
+      apiKey: 'MOCK_GEMINI_KEY_TimeoutKey'
     });
 
     pool.markTimeout('gemini', 'gemini-account-01', 'Read timeout');
@@ -734,7 +734,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     pool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyCooldownKey'
+      apiKey: 'MOCK_GEMINI_KEY_CooldownKey'
     });
 
     pool.markRateLimited('gemini', 'gemini-account-01', 'Rate limit');
@@ -751,7 +751,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     pool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyConcurrencyKey',
+      apiKey: 'MOCK_GEMINI_KEY_ConcurrencyKey',
       maxConcurrentRequests: 2
     });
 
@@ -785,7 +785,7 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     pool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSySecretShouldNeverBePrinted'
+      apiKey: 'MOCK_GEMINI_KEY_SecretShouldNeverBePrinted'
     });
 
     const publicList = pool.listCredentials();
@@ -799,13 +799,13 @@ describe('FAZ 66.10: Multi-Account Credential Pool & Intelligent Quota Routing',
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-01',
-      apiKey: 'AIzaSyKeyS1',
+      apiKey: 'MOCK_GEMINI_KEY_KeyS1',
       priority: 1
     });
     credentialPool.registerCredential({
       providerId: 'gemini',
       credentialId: 'gemini-account-02',
-      apiKey: 'AIzaSyKeyS2',
+      apiKey: 'MOCK_GEMINI_KEY_KeyS2',
       priority: 2
     });
 

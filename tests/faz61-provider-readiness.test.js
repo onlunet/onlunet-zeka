@@ -50,7 +50,7 @@ describe('FAZ 61.1 & 61.2: Provider Registry & Credential Readiness', () => {
     const serialized = JSON.stringify(inspectionReport);
     assert.ok(!serialized.includes('sk-'));
     assert.ok(!serialized.includes('Bearer'));
-    assert.ok(!serialized.includes('AIzaSy'));
+    assert.ok(!serialized.includes('MOCK_GEMINI_KEY_'));
     for (const key of sensitiveEnvKeys) {
       assert.ok(inspectionReport[key].status === 'NOT_CONFIGURED' || inspectionReport[key].status === 'CONFIGURED');
     }

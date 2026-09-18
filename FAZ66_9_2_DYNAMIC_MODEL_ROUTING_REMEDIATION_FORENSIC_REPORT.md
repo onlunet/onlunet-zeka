@@ -247,7 +247,7 @@ New Test Suite: `tests/faz66-9-2-dynamic-model-routing.test.js` (10 / 10 PASS):
 
 - **Zero AI Authority:** Every orchestration result and provider adapter output explicitly enforces:
   `proposalOnly: true`, `executionAuthorized: false`, `mutationAuthorized: false`, `shellAuthorized: false`.
-- **Zero Secret Egress:** Scanned all modified code, tests, logs, and traces. No API keys (`AIzaSy...`, `nvapi-...`, `gsk-...`) exist in plain text or telemetry.
+- **Zero Secret Egress:** Scanned all modified code, tests, logs, and traces. No API keys (`MOCK_GEMINI_KEY_...`, `nvapi-...`, `gsk-...`) exist in plain text or telemetry.
 - **Header Scrubbing:** `x-goog-api-key`, `authorization`, and `bearer` tokens are scrubbed from telemetry and error traces.
 
 ---

@@ -272,7 +272,7 @@ describe('FAZ 59 Red-Team & Adversarial Security Suite', () => {
       const secretString = [
         'OpenAI: sk-proj-1234567890abcdef1234567890abcdef12345678',
         'Anthropic: sk-ant-api03-abcdef12345678901234567890123456',
-        'Google: AIzaSyA1234567890abcdef123456789012345',
+        'Google: MOCK_GEMINI_KEY_A1234567890abcdef123456789012345',
         'Supabase: sbp_12345678901234567890123456789012',
         'Postgres: postgres://dbuser:MySuperSecretP@ssword@localhost:5432/mydb',
         'Bearer: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature_here'
@@ -282,7 +282,7 @@ describe('FAZ 59 Red-Team & Adversarial Security Suite', () => {
 
       assert.ok(!sanitized.includes('sk-proj'));
       assert.ok(!sanitized.includes('sk-ant'));
-      assert.ok(!sanitized.includes('AIzaSyA'));
+      assert.ok(!sanitized.includes('MOCK_GEMINI_KEY_A'));
       assert.ok(!sanitized.includes('sbp_'));
       assert.ok(!sanitized.includes('MySuperSecretP@ssword'));
       assert.ok(!sanitized.includes('signature_here'));

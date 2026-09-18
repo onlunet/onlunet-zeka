@@ -55,10 +55,10 @@ describe('FAZ 66.11: Gemini Pro Multi-Account Production Router Suite', () => {
   it('Test A: Discovers N Gemini accounts from multiple env patterns', () => {
     const origEnv = { ...process.env };
     try {
-      process.env.GEMINI_ACCOUNT_1_API_KEY = 'AIzaSyTestKey01111111111111111111111';
-      process.env.GEMINI_ACCOUNT_2_API_KEY = 'AIzaSyTestKey02222222222222222222222';
-      process.env.GEMINI_ACCOUNT_3_KEY = 'AIzaSyTestKey03333333333333333333333';
-      process.env.GEMINI_API_KEY_4 = 'AIzaSyTestKey04444444444444444444444';
+      process.env.GEMINI_ACCOUNT_1_API_KEY = 'MOCK_GEMINI_KEY_TestKey01111111111111111111111';
+      process.env.GEMINI_ACCOUNT_2_API_KEY = 'MOCK_GEMINI_KEY_TestKey02222222222222222222222';
+      process.env.GEMINI_ACCOUNT_3_KEY = 'MOCK_GEMINI_KEY_TestKey03333333333333333333333';
+      process.env.GEMINI_API_KEY_4 = 'MOCK_GEMINI_KEY_TestKey04444444444444444444444';
 
       const pool = createCredentialPool({ autoDiscoverEnv: true });
       const creds = pool.listCredentials({ providerId: 'gemini' });
@@ -79,9 +79,9 @@ describe('FAZ 66.11: Gemini Pro Multi-Account Production Router Suite', () => {
     const origEnv = { ...process.env };
     try {
       // Intentionally insert out of order
-      process.env.GEMINI_ACCOUNT_10_API_KEY = 'AIzaSyTestKey1000000000000000000000';
-      process.env.GEMINI_ACCOUNT_2_API_KEY = 'AIzaSyTestKey0200000000000000000000';
-      process.env.GEMINI_ACCOUNT_1_API_KEY = 'AIzaSyTestKey0100000000000000000000';
+      process.env.GEMINI_ACCOUNT_10_API_KEY = 'MOCK_GEMINI_KEY_TestKey1000000000000000000000';
+      process.env.GEMINI_ACCOUNT_2_API_KEY = 'MOCK_GEMINI_KEY_TestKey0200000000000000000000';
+      process.env.GEMINI_ACCOUNT_1_API_KEY = 'MOCK_GEMINI_KEY_TestKey0100000000000000000000';
 
       const pool = createCredentialPool({ autoDiscoverEnv: true });
       const creds = pool.listCredentials({ providerId: 'gemini' });
@@ -556,7 +556,7 @@ describe('FAZ 66.11: Gemini Pro Multi-Account Production Router Suite', () => {
 
   // Test P: Secret isolation
   it('Test P: Strict secret isolation: API keys never appear in telemetry or serialized outputs', async () => {
-    const rawSecret = 'AIzaSySecretNeverExposeUnderAnyCircumstances999';
+    const rawSecret = 'MOCK_GEMINI_KEY_SecretNeverExposeUnderAnyCircumstances999';
     const pool = createCredentialPool({ autoDiscoverEnv: false });
     pool.registerCredential({ providerId: 'gemini', credentialId: 'acc-sec', apiKey: rawSecret });
 

@@ -5,17 +5,17 @@ import { createModelRegistry } from '../src/providers/model-registry.js';
 
 describe('FAZ 66: Gemini Model Selection & Registry Matrix', () => {
   it('1. Defaults to gemini-1.5-flash when unspecified', () => {
-    const adapter = createGeminiProviderAdapter({ apiKey: 'AIzaSyTestKey' });
+    const adapter = createGeminiProviderAdapter({ apiKey: 'MOCK_GEMINI_KEY_TestKey' });
     assert.strictEqual(adapter.model, 'gemini-1.5-flash');
   });
 
   it('2. Supports explicit gemini-1.5-pro model', () => {
-    const adapter = createGeminiProviderAdapter({ model: 'gemini-1.5-pro', apiKey: 'AIzaSyTestKey' });
+    const adapter = createGeminiProviderAdapter({ model: 'gemini-1.5-pro', apiKey: 'MOCK_GEMINI_KEY_TestKey' });
     assert.strictEqual(adapter.model, 'gemini-1.5-pro');
   });
 
   it('3. Supports explicit gemini-2.0-flash model', () => {
-    const adapter = createGeminiProviderAdapter({ model: 'gemini-2.0-flash', apiKey: 'AIzaSyTestKey' });
+    const adapter = createGeminiProviderAdapter({ model: 'gemini-2.0-flash', apiKey: 'MOCK_GEMINI_KEY_TestKey' });
     assert.strictEqual(adapter.model, 'gemini-2.0-flash');
   });
 

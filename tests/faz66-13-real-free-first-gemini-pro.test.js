@@ -274,7 +274,7 @@ describe('FAZ 66.13: Real Free-First & Gemini Pro Controlled Fallback Suite', ()
   // Test 5: Zero Secret Leakage across Telemetry & Errors
   it('Test 5: Guarantees API keys never leak into telemetry, logs, or evidence', () => {
     const collector = createEvidenceCollector({ phaseId: 'FAZ-66.13-TEST-5' });
-    const realApiKeyPattern = 'AIzaSy' + 'B'.repeat(33);
+    const realApiKeyPattern = 'MOCK_GEMINI_KEY_' + 'B'.repeat(33);
 
     collector.recordModelUsage({
       phaseId: 'FAZ-66.13-TEST-5',

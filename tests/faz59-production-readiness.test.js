@@ -294,11 +294,11 @@ describe('FAZ 59 Production Readiness & Real Provider E2E Audit', () => {
   // =========================================================================
   describe('3. Credential Security & Secret Redaction', () => {
     it('Redacts OpenAI, Anthropic, Google, and Supabase keys from arbitrary text', () => {
-      const raw = 'Keys: sk-proj12345678901234567890, sk-ant-api03-abcdef1234567890123456, AIzaSyD1234567890abcdef123456789012345, sbp_123456789012345678901234';
+      const raw = 'Keys: sk-proj12345678901234567890, sk-ant-api03-abcdef1234567890123456, MOCK_GEMINI_KEY_D1234567890abcdef123456789012345, sbp_123456789012345678901234';
       const cleaned = sanitizeString(raw);
       assert.ok(!cleaned.includes('sk-proj'));
       assert.ok(!cleaned.includes('sk-ant'));
-      assert.ok(!cleaned.includes('AIzaSyD'));
+      assert.ok(!cleaned.includes('MOCK_GEMINI_KEY_D'));
       assert.ok(!cleaned.includes('sbp_'));
       assert.strictEqual(cleaned.match(/\*\*\*REDACTED\*\*\*/g).length, 4);
     });

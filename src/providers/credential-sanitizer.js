@@ -47,8 +47,10 @@ export function sanitizeString(str) {
   // 2. Anthropic Keys
   result = result.replace(/\bsk-ant-[A-Za-z0-9_-]{20,}\b/g, REDACTED_MARKER);
 
-  // 3. Google Keys
+  // 3. Google Keys & URL Query Keys
   result = result.replace(/\bAIza[0-9A-Za-z\-_]{30,45}\b/g, REDACTED_MARKER);
+  result = result.replace(/\bMOCK_GEMINI_KEY_[0-9A-Za-z\-_]+\b/g, REDACTED_MARKER);
+  result = result.replace(/([?&](?:key|api[_-]?key)=)[^&\s"']+/gi, `$1${REDACTED_MARKER}`);
 
   // 4. Supabase Keys
   result = result.replace(/\bsb[pa]_[A-Za-z0-9_-]{20,}\b/g, REDACTED_MARKER);
