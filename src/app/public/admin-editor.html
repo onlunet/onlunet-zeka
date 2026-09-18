@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ONLUNET ZEKA — Görsel Web Editörü (GrapesJS)</title>
+  <!-- GrapesJS Official Open Source Core -->
+  <link rel="stylesheet" href="/vendor/grapesjs/css/grapes.min.css">
+  <script src="/vendor/grapesjs/grapes.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #0f172a;
+      --border: #334155;
+      --text: #f8fafc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    
+    #editor-topbar {
+      height: 54px;
+      background: #1e293b;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 1000;
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1rem;
+    }
+    .topbar-brand span.badge {
+      background: rgba(37, 99, 235, 0.2);
+      color: #60a5fa;
+      border: 1px solid #3b82f6;
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .device-btn, .action-btn {
+      background: #334155;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .device-btn.active, .device-btn:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+    .save-btn {
+      background: #059669 !important;
+      border-color: #10b981 !important;
+      color: #ffffff !important;
+    }
+    .save-btn:hover {
+      background: #047857 !important;
+    }
+    #gjs-container {
+      height: calc(100% - 54px);
+      width: 100%;
+    }
+    /* GrapesJS Dark Theme Polish */
+    .gjs-one-bg { background-color: #1e293b !important; }
+    .gjs-two-color { color: #cbd5e1 !important; }
+    .gjs-three-bg { background-color: #0f172a !important; color: #f8fafc !important; }
+    .gjs-four-color, .gjs-four-color-h:hover { color: #60a5fa !important; }
+    .gjs-pn-views-container { border-left: 1px solid var(--border) !important; }
+  </style>
+</head>
+<body>
+
+  <header id="editor-topbar">
+    <div class="topbar-brand">
+      <span>⚡ ONLUNET ZEKA</span>
+      <span class="badge">Web Builder (GrapesJS)</span>
+      <span id="project-label" style="color: #94a3b8; font-size: 0.85rem; font-weight: normal; margin-left: 10px;">Proje: Yükleniyor...</span>
+    </div>
+
+    <div class="topbar-actions">
+      <div style="display: flex; gap: 4px; background: #0f172a; padding: 3px; border-radius: 8px; border: 1px solid var(--border);">
+        <button class="device-btn active" onclick="setDevice('desktop')" id="btn-desktop">🖥️ Masaüstü</button>
+        <button class="device-btn" onclick="setDevice('tablet')" id="btn-tablet">📱 Tablet</button>
+        <button class="device-btn" onclick="setDevice('mobile')" id="btn-mobile">📲 Mobil</button>
+      </div>
+
+      <button class="action-btn save-btn" onclick="saveProjectFrontend()" id="btn-save">
+        💾 Değişiklikleri Kaydet
+      </button>
+      <button class="action-btn" onclick="previewFrontend()">
+        👁️ Canlı Önizle
+      </button>
+      <button class="action-btn" onclick="window.location.href='/'">
+        ✕ Kapat
+      </button>
+    </div>
+  </header>
+
+  <div id="gjs-container"></div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const projectId = urlParams.get('slug') || urlParams.get('project') || 'current';
+    document.getElementById('project-label').textContent = 'Proje: ' + projectId;
+
+    let editor = null;
+
+    async function initEditor() {
+      // 1. Fetch current project HTML
+      let initialHtml = '<div style="padding: 40px; text-align: center;"><h2>Yükleniyor...</h2></div>';
+      try {
+        const res = await fetch('/api/projects/' + encodeURIComponent(projectId) + '/content');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.html) initialHtml = data.html;
+        }
+      } catch (err) {
+        console.warn('Could not fetch remote HTML, using default canvas');
+      }
+
+      // 2. Initialize GrapesJS
+      editor = grapesjs.init({
+        container: '#gjs-container',
+        fromElement: false,
+        height: '100%',
+        width: 'auto',
+        storageManager: false,
+        deviceManager: {
+          devices: [
+            { name: 'Desktop', width: '' },
+            { name: 'Tablet', width: '768px', widthMedia: '992px' },
+            { name: 'Mobile', width: '375px', widthMedia: '480px' }
+          ]
+        },
+        blockManager: {
+          appendTo: '#blocks-container',
+          blocks: [
+            { id: 'section', label: 'Bölüm (Section)', category: 'Yerleşim', content: '<section style="padding: 60px 20px;"><div style="max-width: 1200px; margin: 0 auto;"><h2>Yeni Bölüm Başlığı</h2><p>İçerik buraya yazılabilir.</p></div></section>' },
+            { id: 'card', label: 'Kart (Card)', category: 'Bileşenler', content: '<div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);"><h3 style="margin-bottom: 8px;">Kart Başlığı</h3><p style="color: #64748b;">Kart açıklama metni buraya yazılabilir.</p></div>' },
+            { id: 'button', label: 'Buton', category: 'Bileşenler', content: '<a href="#" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; display: inline-block;">Hemen İnceleyin</a>' },
+            { id: 'heading', label: 'Başlık (H2)', category: 'Tipografi', content: '<h2 style="font-size: 2rem; font-weight: 800; color: #0f172a; margin-bottom: 12px;">Öne Çıkan Başlık</h2>' },
+            { id: 'text', label: 'Paragraf', category: 'Tipografi', content: '<p style="color: #475569; line-height: 1.6; font-size: 1rem;">Bu alan kullanıcı tarafından serbestçe düzenlenebilir.</p>' }
+          ]
+        }
+      });
+
+      // Load initial content
+      editor.setComponents(initialHtml);
+    }
+
+    function setDevice(device) {
+      document.querySelectorAll('.device-btn').forEach(b => b.classList.remove('active'));
+      if (device === 'desktop') {
+        document.getElementById('btn-desktop').classList.add('active');
+        editor.setDevice('Desktop');
+      } else if (device === 'tablet') {
+        document.getElementById('btn-tablet').classList.add('active');
+        editor.setDevice('Tablet');
+      } else if (device === 'mobile') {
+        document.getElementById('btn-mobile').classList.add('active');
+        editor.setDevice('Mobile');
+      }
+    }
+
+    async function saveProjectFrontend() {
+      const btn = document.getElementById('btn-save');
+      const originalText = btn.textContent;
+      btn.textContent = '⏳ Kaydediliyor...';
+      btn.disabled = true;
+
+      const html = editor.getHtml();
+      const css = editor.getCss();
+
+      try {
+        const res = await fetch('/api/projects/save-frontend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId,
+            html,
+            css
+          })
+        });
+        const result = await res.json();
+        if (result.success) {
+          alert('✓ Tasarım başarıyla kaydedildi!');
+        } else {
+          alert('Kayıt başarısız: ' + (result.error || 'Bilinmeyen hata'));
+        }
+      } catch (err) {
+        alert('Bağlantı hatası: ' + err.message);
+      } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    function previewFrontend() {
+      window.open('/projects/' + encodeURIComponent(projectId) + '/tr/', '_blank');
+    }
+
+    window.addEventListener('DOMContentLoaded', initEditor);
+  </script>
+</body>
+</html>

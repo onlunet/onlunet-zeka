@@ -367,6 +367,18 @@ export function buildHeuristicCategoryScores(deterministicData = {}, genericSign
   if (color.colorCount > 8) colorSystem -= 15;
   if (color.hasExcessiveGradients) colorSystem -= 20;
 
+  const contrastData = deterministicData.contrast || {};
+  const contrastSummary = contrastData.contrastSummary || color.contrastSummary || {};
+  const contrastFailures = contrastSummary.failures || (color.hasLowContrastText ? (color.contrastIssuesCount || 1) : 0);
+  const worstContrastRatio = contrastSummary.worstRatio || color.worstContrastRatio || 21.0;
+
+  if (contrastFailures > 0) {
+    if (worstContrastRatio < 2.0) colorSystem -= 25;
+    else if (worstContrastRatio < 3.0) colorSystem -= 15;
+    else if (contrastFailures >= 5) colorSystem -= 12;
+    else colorSystem -= 8;
+  }
+
   // 6. Component Quality
   let componentQuality = 80;
   if (!components.hasNavigation) componentQuality -= 15;
@@ -391,7 +403,11 @@ export function buildHeuristicCategoryScores(deterministicData = {}, genericSign
   let uxQuality = 85;
   if (!components.isStickyNav) uxQuality -= 10;
   if (layout.hasHorizontalOverflow) uxQuality -= 30;
-  if (color.hasLowContrastText) uxQuality -= 25;
+  if (color.hasLowContrastText || contrastFailures > 0) {
+    if (worstContrastRatio < 2.0) uxQuality -= 30;
+    else if (worstContrastRatio < 3.0) uxQuality -= 20;
+    else uxQuality -= 10;
+  }
 
   // 10. Responsive Quality
   let responsiveQuality = 85;
@@ -575,13 +591,12 @@ export async function analyzeScreenshot(options = {}) {
   let deterministicData = {};
   if (validatedUrl) {
     try {
-      const liveCdp = await analyzeRenderedUrl({
-        url: validatedUrl,
+      const liveCdp = await analyzeRenderedUrl(validatedUrl, {
         viewport: resolvedViewport,
         timeoutMs: Math.min(timeoutMs, 10000)
       });
-      if (liveCdp?.metrics) {
-        deterministicData = liveCdp.metrics;
+      if (liveCdp) {
+        deterministicData = liveCdp.metrics || liveCdp;
       }
     } catch {
       // Graceful degradation when live CDP is not available
@@ -775,6 +790,24 @@ export async function analyzeScreenshot(options = {}) {
         });
       }
 
+      // Convert deterministic warnings into findings
+      if (deterministicData.warnings && Array.isArray(deterministicData.warnings)) {
+        for (const w of deterministicData.warnings) {
+          rawFindings.push({
+            id: w.id || `WARN-${rawFindings.length + 1}`,
+            category: w.category || 'layout',
+            severity: w.severity || 'medium',
+            title: w.title,
+            description: w.description,
+            evidence: w.description,
+            region: null,
+            confidence: 1.0,
+            suggestedAction: 'Tasarım kuralına uygun şekilde düzenlenmelidir.',
+            proposalOnly: true
+          });
+        }
+      }
+
       strengths = [
         'Sayfa yapısı ve temel HTML5 semantiği temizdir',
         'Grid hizalaması ve içerik düzeni tutarlıdır',
@@ -821,6 +854,7 @@ export async function analyzeScreenshot(options = {}) {
     findings: normalizeFindings(rawFindings),
     strengths: Object.freeze(Array.from(new Set(strengths))),
     recommendations: Object.freeze(Array.from(new Set(recommendations))),
+    deterministicData: Object.freeze({ ...deterministicData }),
     breakdown,
     analyzedAt: new Date().toISOString(),
     proposalOnly: true, // HARD INVARIANT

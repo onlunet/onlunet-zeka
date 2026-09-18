@@ -1479,6 +1479,7 @@
             <div style="display: inline-flex; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; gap: 4px;">
               <button type="button" id="corp-mode-site-btn" class="corp-mode-btn active" onclick="switchCorpModernizerMode('site')">🌐 Web Sitesi Linki</button>
               <button type="button" id="corp-mode-maps-btn" class="corp-mode-btn" onclick="switchCorpModernizerMode('maps')">📍 Google Haritalar Linki (Yeni)</button>
+              <button type="button" id="corp-mode-image-btn" class="corp-mode-btn" onclick="switchCorpModernizerMode('image')">🖼️ Referans Görsel / Şablon</button>
             </div>
           </div>
           
@@ -1527,6 +1528,63 @@
                 <span id="btn-inspect-maps-text">📍 Haritayı İncele & Siteyi Oluştur</span>
                 <span id="btn-inspect-maps-spinner" style="display: none;">⏳ İnceleniyor...</span>
               </button>
+            </div>
+          </div>
+
+          <!-- Mode 3: Referans Görsel / Şablon -->
+          <div id="corp-image-modernizer-box" style="display: none;">
+            <div style="font-size: 0.8rem; color: #f472b6; margin-bottom: 10px;">
+              🖼️ Örnek web sitesi ekran görüntüsü (PNG, JPG veya WEBP, Maks 10MB) yükleyin; sistem görsel geometriyi ve tasarım DNA'sını birebir veya benzeri kurumsal siteye dönüştürsün.
+            </div>
+            <div class="corp-modernizer-input-row" style="flex-direction: column; gap: 12px;">
+              <div style="display: flex; gap: 10px; width: 100%;">
+                <div class="corp-modernizer-input-wrap" style="border-color: rgba(244, 114, 182, 0.4); flex: 1;">
+                  <span style="color: #ec4899; font-size: 1.1rem;">📷</span>
+                  <input
+                    type="file"
+                    id="corp-reference-file"
+                    class="corp-modernize-input"
+                    accept="image/png,image/jpeg,image/webp"
+                    onchange="handleCorpReferenceFileUpload(event)"
+                  >
+                </div>
+              </div>
+
+              <!-- Preview & Summary Elements -->
+              <div id="corp-dropzone-preview" style="display: none; background: rgba(0,0,0,0.3); border: 1px dashed rgba(244, 114, 182, 0.5); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                <img id="corp-reference-thumb" src="" alt="Referans Önizleme" style="max-height: 140px; max-width: 100%; border-radius: 4px; box-shadow: var(--shadow-sm);">
+              </div>
+              <div id="corp-image-analysis-summary" style="display: none; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.8rem; color: #cbd5e1;"></div>
+              
+              <!-- Fidelity Selector Box -->
+              <div id="corp-fidelity-selector-box" style="display: none; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;">
+                <div style="font-size: 0.82rem; font-weight: 600; color: #fff; margin-bottom: 8px;">Dönüştürme Hassasiyeti (Fidelity Mode):</div>
+                <div style="display: flex; gap: 12px;">
+                  <label id="fidelity-card-exact" class="corp-fidelity-card selected" style="flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; display: flex; align-items: center; gap: 8px;" onclick="switchCorpImageFidelity('exact')">
+                    <input type="radio" name="corp_fidelity" id="fidelity-radio-exact" value="exact" checked onchange="switchCorpImageFidelity('exact')">
+                    <div>
+                      <div style="font-size: 0.85rem; font-weight: 700; color: #fff;">Birebir Tasarım (Exact)</div>
+                      <div style="font-size: 0.72rem; color: var(--text-muted);">Görseldeki kesit yükseklikleri, grid ve buton konumları piksel piksel eşleştirilir.</div>
+                    </div>
+                  </label>
+                  <label id="fidelity-card-similar" class="corp-fidelity-card" style="flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; display: flex; align-items: center; gap: 8px;" onclick="switchCorpImageFidelity('similar')">
+                    <input type="radio" name="corp_fidelity" id="fidelity-radio-similar" value="similar" onchange="switchCorpImageFidelity('similar')">
+                    <div>
+                      <div style="font-size: 0.85rem; font-weight: 700; color: #fff;">Benzer / Esnek Tasarım (Similar)</div>
+                      <div style="font-size: 0.72rem; color: var(--text-muted);">Tasarım DNA'sı ve hiyerarşi korunur, içerik esnek akışa uyarlanır.</div>
+                    </div>
+                  </label>
+                </div>
+
+                <!-- Subpage Visual Cascade Option -->
+                <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; align-items: flex-start; gap: 10px;">
+                  <input type="checkbox" id="corp-cascade-subpages" checked style="accent-color: #6366f1; width: 18px; height: 18px; margin-top: 2px; cursor: pointer;">
+                  <label for="corp-cascade-subpages" style="font-size: 0.82rem; color: #cbd5e1; cursor: pointer; line-height: 1.5;">
+                    <strong style="color: #fff;">🎨 Tüm Alt Sayfalara Otomatik Aktar (Önerilen):</strong><br>
+                    Yüklenen tek görseldeki renk paleti, tipografi, opak yapışkan header ve buton stili Kurumsal, Hizmetler, Ürünler ve İletişim sayfalarına otomatik uygulanır. Her sayfa için ayrı resim yüklemek zorunda kalmazsınız.
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1752,7 +1810,12 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
         <div id="corp-step-4" class="corp-step-panel" style="display: none;">
           <div class="corp-input-group">
             <label>Kurumsal Renk Paleti</label>
-            <div class="theme-palette-grid">
+              <div class="theme-palette-card" id="palette-reference" style="display: none; border: 2px solid #ec4899; background: rgba(236, 72, 153, 0.08);" onclick="selectCorpPalette('reference')">
+                <div class="palette-swatch" id="palette-reference-swatch" style="background: linear-gradient(135deg, #6366f1, #ec4899);"></div>
+                <div style="font-weight: 700; font-size: 0.85rem; color: #fff;">🖼️ Referans Görsel Paleti</div>
+                <div id="palette-reference-desc" style="font-size: 0.72rem; color: #f472b6;">Görselden Otomatik Ayıklandı</div>
+              </div>
+
               <div class="theme-palette-card selected" id="palette-blue" onclick="selectCorpPalette('blue')">
                 <div class="palette-swatch" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);"></div>
                 <div style="font-weight: 700; font-size: 0.85rem; color: #fff;">Kurumsal Mavi</div>
@@ -3810,24 +3873,186 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
 
     let currentCorpModernizerMode = 'site';
     let currentExtractedMapsData = null;
+    let currentUploadedReferenceData = null;
+    let currentUploadedReferenceFidelity = 'exact';
 
     function switchCorpModernizerMode(mode) {
       currentCorpModernizerMode = mode;
       const siteBtn = document.getElementById('corp-mode-site-btn');
       const mapsBtn = document.getElementById('corp-mode-maps-btn');
+      const imageBtn = document.getElementById('corp-mode-image-btn');
       const siteBox = document.getElementById('corp-site-modernizer-box');
       const mapsBox = document.getElementById('corp-maps-modernizer-box');
+      const imageBox = document.getElementById('corp-image-modernizer-box');
 
-      if (mode === 'site') {
-        if (siteBtn) { siteBtn.className = 'corp-mode-btn active'; }
-        if (mapsBtn) { mapsBtn.className = 'corp-mode-btn'; }
-        if (siteBox) siteBox.style.display = 'block';
-        if (mapsBox) mapsBox.style.display = 'none';
-      } else {
-        if (siteBtn) { siteBtn.className = 'corp-mode-btn'; }
-        if (mapsBtn) { mapsBtn.className = 'corp-mode-btn active active-maps'; }
-        if (siteBox) siteBox.style.display = 'none';
-        if (mapsBox) mapsBox.style.display = 'block';
+      if (siteBtn) siteBtn.className = mode === 'site' ? 'corp-mode-btn active' : 'corp-mode-btn';
+      if (mapsBtn) mapsBtn.className = mode === 'maps' ? 'corp-mode-btn active active-maps' : 'corp-mode-btn';
+      if (imageBtn) imageBtn.className = mode === 'image' ? 'corp-mode-btn active active-image' : 'corp-mode-btn';
+
+      if (siteBox) siteBox.style.display = mode === 'site' ? 'block' : 'none';
+      if (mapsBox) mapsBox.style.display = mode === 'maps' ? 'block' : 'none';
+      if (imageBox) imageBox.style.display = mode === 'image' ? 'block' : 'none';
+    }
+
+    function switchCorpImageFidelity(fidelity) {
+      currentUploadedReferenceFidelity = fidelity;
+      const radioExact = document.getElementById('fidelity-radio-exact');
+      const radioSimilar = document.getElementById('fidelity-radio-similar');
+      const cardExact = document.getElementById('fidelity-card-exact');
+      const cardSimilar = document.getElementById('fidelity-card-similar');
+
+      if (radioExact) radioExact.checked = (fidelity === 'exact');
+      if (radioSimilar) radioSimilar.checked = (fidelity === 'similar');
+      if (cardExact) cardExact.classList.toggle('selected', fidelity === 'exact');
+      if (cardSimilar) cardSimilar.classList.toggle('selected', fidelity === 'similar');
+    }
+
+    async function handleCorpReferenceFileUpload(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+
+      const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+      const validExtension = /\.(png|jpe?g|webp)$/i.test(file.name);
+      if (!validTypes.includes(file.type) && !validExtension) {
+        alert('Lütfen geçerli bir PNG, JPG veya WEBP dosyası yükleyin.');
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Dosya boyutu 10MB sınırını aşıyor.');
+        return;
+      }
+
+      const progressBox = document.getElementById('corp-modernize-progress');
+      const progressText = document.getElementById('corp-progress-text');
+      const progressIcon = document.getElementById('corp-progress-icon');
+      const fidelityBox = document.getElementById('corp-fidelity-selector-box');
+      const resultBadge = document.getElementById('corp-modernize-result-badge');
+
+      if (progressBox) progressBox.style.display = 'block';
+      if (progressIcon) progressIcon.textContent = '🖼️';
+      if (progressText) progressText.textContent = 'Referans görsel taranıyor ve tasarım geometrisi analiz ediliyor...';
+
+      try {
+        const reader = new FileReader();
+        const base64Data = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const res = await fetch('/api/corporate/upload-reference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64Data,
+            originalName: file.name
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Referans görsel analiz edilemedi.');
+        }
+
+        currentUploadedReferenceData = {
+          referenceId: data.referenceId || data.id,
+          imagePath: data.imagePath,
+          analysis: data.analysis,
+          designSpec: data.designSpec,
+          base64: base64Data
+        };
+
+        const sectionsList = data.designSpec?.sections || data.designSpec?.layout?.sections || data.analysis?.geometry?.sections || [];
+        const sectionsCount = sectionsList.length || 8;
+
+        const dropPreview = document.getElementById('corp-dropzone-preview');
+        const thumbImg = document.getElementById('corp-reference-thumb');
+        const analysisSum = document.getElementById('corp-image-analysis-summary');
+        if (dropPreview) dropPreview.style.display = 'block';
+        if (thumbImg) thumbImg.src = `data:image/png;base64,${base64Data}`;
+
+        // 1. Extract and auto-apply detected reference color palette
+        const detectedPalette = data.analysis?.detectedPalette || data.designSpec?.detectedPalette || {};
+        const pColor = detectedPalette.primary || '#0f172a';
+        const aColor = detectedPalette.accent || '#2563eb';
+        
+        const paletteRefCard = document.getElementById('palette-reference');
+        const paletteRefSwatch = document.getElementById('palette-reference-swatch');
+        const paletteRefDesc = document.getElementById('palette-reference-desc');
+        if (paletteRefCard) {
+          paletteRefCard.style.display = 'block';
+          if (paletteRefSwatch) paletteRefSwatch.style.background = `linear-gradient(135deg, ${pColor}, ${aColor})`;
+          if (paletteRefDesc) paletteRefDesc.innerText = `Ana: ${pColor} | Vurgu: ${aColor}`;
+        }
+        selectCorpPalette('reference');
+
+        if (analysisSum) {
+          analysisSum.style.display = 'block';
+          analysisSum.innerHTML = `<strong>Düzen:</strong> ${data.analysis?.dominantLayout || 'Spec-Driven'} | <strong>Kesitler:</strong> ${sectionsCount} Adet | <strong>Renkler:</strong> <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${pColor};vertical-align:middle;margin-right:2px;"></span>${pColor} <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${aColor};vertical-align:middle;margin-right:2px;margin-left:4px;"></span>${aColor}`;
+        }
+
+        // 2. Intelligent Sector & Form Pre-fill (avoiding arbitrary Lojistik defaults)
+        const fileNameLower = (file.name || '').toLowerCase();
+        const analysisText = JSON.stringify(data.analysis || {}).toLowerCase();
+        const combinedHints = `${fileNameLower} ${analysisText}`;
+
+        if (/pet|mama|kedi|kopek|köpek|veteriner|animal|hayvan/.test(combinedHints)) {
+          populateCorpPreset('petshop');
+          selectCorpPalette('reference');
+        } else if (/restoran|cafe|kafe|yemek|burger|pizza|kebap|lokanta|pasta|tatli|tatlı|gastro/.test(combinedHints)) {
+          populateCorpPreset('restoran');
+          selectCorpPalette('reference');
+        } else if (/oto|araç|arac|servis|tamir|lastik|bakim|bakım|otomotiv/.test(combinedHints)) {
+          populateCorpPreset('otomotiv');
+          selectCorpPalette('reference');
+        } else if (/enerji|solar|güneş|gunes|akü|aku|panel|elektrik|trafo|power/.test(combinedHints)) {
+          populateCorpPreset('enerji');
+          selectCorpPalette('reference');
+        } else if (/saglik|sağlık|klinik|doktor|diş|dis|hastane|medikal|tedavi|clinic/.test(combinedHints)) {
+          populateCorpPreset('saglik');
+          selectCorpPalette('reference');
+        } else if (/hukuk|avukat|arabulucu|baro|adli|adliyet|law|danismanlik|danışmanlık/.test(combinedHints)) {
+          populateCorpPreset('hukuk');
+          selectCorpPalette('reference');
+        } else if (/yazilim|yazılım|bilisim|bilişim|software|kod|tech|ai|app/.test(combinedHints)) {
+          populateCorpPreset('yazilim');
+          selectCorpPalette('reference');
+        } else if (/insaat|inşaat|mimar|yapı|yapi|dekorasyon|tadilat|gayrimenkul|architecture/.test(combinedHints)) {
+          populateCorpPreset('insaat');
+          selectCorpPalette('reference');
+        } else if (/lojistik|nakliyat|kargo|tasima|taşıma|depo|antrepo|freight/.test(combinedHints)) {
+          populateCorpPreset('lojistik');
+          selectCorpPalette('reference');
+        } else {
+          // Clean default for custom reference uploads
+          const currentName = document.getElementById('corp-company-name')?.value || '';
+          if (!currentName || currentName.includes('Akdeniz Lojistik')) {
+            document.getElementById('corp-company-name').value = 'Referans Tasarım Kurumsal A.Ş.';
+            document.getElementById('corp-slogan').value = 'Referans Görsel Şablonuna Uygun Yüksek Standartlı Kurumsal Çözümler';
+            document.getElementById('corp-target-dir').value = 'projeler/referans-kurumsal-site';
+          }
+          selectCorpPalette('reference');
+        }
+
+        if (fidelityBox) fidelityBox.style.display = 'block';
+        if (progressBox) progressBox.style.display = 'none';
+
+        if (resultBadge) {
+          resultBadge.style.display = 'block';
+          resultBadge.innerHTML = `
+            <strong>🖼️ Referans Görsel Başarıyla Analiz Edildi!</strong><br>
+            <div style="margin-top: 4px; font-size: 0.8rem; color: var(--text-muted);">
+              • Şablon Geometrisi: <strong>${data.analysis?.dominantLayout || 'Spec-Driven'}</strong><br>
+              • Tespit Edilen Kesitler: <strong>${sectionsCount} Adet</strong> (Hero, Ürünler, Hizmetler, Güven & Stats, İletişim)<br>
+              • Renk Paleti: <strong>Görselden otomatik ayıklandı (${pColor} / ${aColor}) ve uygulandı. Manuel renk seçimi yapmanıza gerek yoktur.</strong><br>
+              • Bilgileri kontrol edip doğrudan <strong>Önizleme & Üret</strong> adımına geçebilirsiniz.
+            </div>
+          `;
+        }
+      } catch (err) {
+        if (progressBox) progressBox.style.display = 'none';
+        alert('Referans görsel sunucuya gönderilemedi: ' + err.message);
       }
     }
 
@@ -4324,6 +4549,15 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
         }
       }
 
+      if (currentUploadedReferenceData) {
+        payload.referenceId = currentUploadedReferenceData.referenceId;
+        payload.referenceImage = currentUploadedReferenceData.base64;
+        payload.referenceImagePath = currentUploadedReferenceData.imagePath;
+        payload.referenceAnalysis = currentUploadedReferenceData.analysis;
+        payload.imageDesignSpec = currentUploadedReferenceData.designSpec;
+        payload.referenceImageFidelity = currentUploadedReferenceFidelity;
+      }
+
       try {
         const res = await fetch('/api/corporate/plan', {
           method: 'POST',
@@ -4423,12 +4657,20 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
       `;
 
       try {
+        const generatePayload = {
+          approval: true
+        };
+        if (currentUploadedReferenceData) {
+          generatePayload.referenceId = currentUploadedReferenceData.referenceId;
+          generatePayload.referenceImagePath = currentUploadedReferenceData.imagePath;
+          generatePayload.imageDesignSpec = currentUploadedReferenceData.designSpec;
+          generatePayload.referenceImageFidelity = currentUploadedReferenceFidelity;
+        }
+
         const res = await fetch('/api/corporate/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            approval: true
-          })
+          body: JSON.stringify(generatePayload)
         });
         const data = await res.json();
 
@@ -4459,12 +4701,15 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
                       ${isRunning ? '<span class="project-status-badge running"><span>🟢</span> Sunucu Canlı Olarak Başlatıldı (Port 8000)</span>' : ''}
                     </div>
                   </div>
-                  <div style="display: flex; gap: 10px;">
+                  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <a href="${siteUrl}" target="_blank" class="btn-approve" style="text-decoration: none; padding: 10px 18px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
                       <span>🌐</span> Web Sitesi
                     </a>
                     <a href="${adminUrl}" target="_blank" class="btn-generate" style="text-decoration: none; padding: 10px 18px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
                       <span>🔑</span> Admin Girişi
+                    </a>
+                    <a href="/api/corporate/export-zip/${targetDir.replace('projeler/', '')}" download class="btn-cancel" style="text-decoration: none; padding: 10px 18px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                      <span>📦</span> ZIP İndir
                     </a>
                   </div>
                 </div>
@@ -4587,9 +4832,15 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
                 ${p.createdAt ? `<div><strong>Üretilme:</strong> ${new Date(p.createdAt).toLocaleString('tr-TR')}</div>` : ''}
               </div>
 
-              <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; margin-top: auto;">
-                <div style="display: flex; gap: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; margin-top: auto; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                   ${actionBtn}
+                  <a href="/api/corporate/export-zip/${p.id || p.slug || (p.targetDirectory ? p.targetDirectory.replace('projeler/', '') : '')}" download class="btn-cancel" style="text-decoration: none; padding: 6px 12px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
+                    <span>📦</span> Zip İndir
+                  </a>
+                  <button onclick="deployProjectModal('${p.id || p.slug || (p.targetDirectory ? p.targetDirectory.replace('projeler/', '') : '')}')" class="corp-preset-btn" style="padding: 6px 12px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px; background: rgba(99, 102, 241, 0.15); border-color: rgba(99, 102, 241, 0.4); color: #818cf8;">
+                    <span>🚀</span> Yayınla
+                  </button>
                 </div>
                 <div style="display: flex; gap: 8px;">
                   <a href="${p.url}" target="_blank" class="btn-approve" style="text-decoration: none; padding: 6px 12px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
@@ -4641,6 +4892,37 @@ Akıllı Depolama & Antrepo Çözümleri</textarea>
         }
       } catch (err) {
         alert('Sunucu hatası: ' + err.message);
+      }
+    }
+
+    async function deployProjectModal(slug) {
+      const mode = prompt(
+        `🚀 "${slug}" projesini canlıya yayınlama:\n\n1. "zip" yazarsanız: Canlı sunucuya hazır ZIP arşivi iner.\n2. Bir Webhook URL yapıştırırsanız: Otomatik deploy tetiklenir.\n\nSeçiminiz veya Webhook URL:`,
+        'zip'
+      );
+      if (!mode) return;
+
+      if (mode.trim().toLowerCase() === 'zip') {
+        window.location.href = `/api/corporate/export-zip/${slug}`;
+        return;
+      }
+
+      if (mode.startsWith('http://') || mode.startsWith('https://')) {
+        try {
+          const res = await fetch(`/api/corporate/deploy/${slug}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetType: 'webhook', webhookUrl: mode })
+          });
+          const data = await res.json();
+          if (data.success) {
+            alert('✓ Proje başarıyla uzak sunucuya yayınlandı!');
+          } else {
+            alert('Yayınlama hatası: ' + (data.error || 'Bilinmeyen hata'));
+          }
+        } catch (err) {
+          alert('Bağlantı hatası: ' + err.message);
+        }
       }
     }
 

@@ -20,6 +20,7 @@ cache/
 coverage/
 dist/
 build/
+artifacts/
 
 # Local Browser Profiles (Chrome DevTools Protocol audits)
 temp-chrome-profile-*/
@@ -32,6 +33,8 @@ scratch/
 # Visual Captures & Temporary Certification
 onlunet-visual-captures/
 .temp-certification/
+storage/
+temp-qa-test-project/
 
 # Local Backup & OS Artifacts
 *.bak

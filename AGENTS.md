@@ -104,4 +104,16 @@ Bu kurallar, ONLUNET ZEKA bünyesinde oluşturulan tüm kurumsal web projelerind
   3. **Şablon Çıkarma & Kullanıcıya Doğrulama/Soru Kapısı**: Tasarıma ve kod yazımına başlamadan önce çıkarılan şablon/sayfa ağacı kullanıcıya sunulur. Eksik veriler için net uyarı verilerek sorular yöneltilir.
   4. **Kullanıcı Onayından Sonra İnşa**: Yalnızca kullanıcı eksik verileri tamamladığında veya şablonu onayladığında site tasarlanmaya, kodlanmaya ve SQLite veritabanına işlenmeye başlanır.
 
+---
+
+## 🗄️ 10. Database-First Admin Senkronizasyonu & Eksiksiz Veritabanı Doldurma Garantisi (Database-First CMS & Real-Time Reactivity)
+- Üretilen tüm projelerde frontend ve admin paneli asla birbirinden bağımsız veya statik/kopuk çalışamaz.
+- **Tek Gerçek Kaynak (Single Source of Truth - SQLite)**:
+  - Taranan ve üretilen tüm hizmetler (`cms_contents` + `cms_translations` type='service'), ürünler (type='product'), kurumsal sayfalar (type='page'), blog rehberleri (type='blog'), referanslar (`case_studies`), müşteri yorumları (`testimonials`) ve şirket iletişim/tema bilgileri (`site_settings`) SQLite veritabanına eksiksiz seed edilir.
+  - Sunucu yönlendirmesinde (`scripts/server.js`) tüm alt sayfalar, hizmetler, ürünler, bloglar ve iletişim alanları önce SQLite veritabanından sorgulanır (Database-First).
+- **Çift Yönlü Canlı Reaktivite**:
+  - Admin panelinde (`/admin/cms`, `/admin/case-studies`, `/admin/testimonials`, `/admin/agency`, `/admin/appearance`, `/admin/menus` vb.) yapılan herhangi bir başlık, metin, görsel, tema rengi veya ayar değişikliği canlı sitede **anında ve sunucu yeniden başlatılmadan** güncellenir.
+  - Sabit kodlanmış renkler (`#2563eb`, `#1e40af` vb.) yerine `site_settings` tablosundaki `theme.primary_color`, `theme.primary_hover` ve `theme.accent_color` değişkenleri dinamik işlenir.
+
+
 

@@ -89,7 +89,19 @@ export function computeCompositeVisualScore({
 
   const color = criticEvaluation.colorScore !== undefined
     ? criticEvaluation.colorScore
-    : (deterministicMetrics.color?.hasExcessiveGradients ? 60 : 85);
+    : (() => {
+        let base = deterministicMetrics.color?.hasExcessiveGradients ? 60 : 85;
+        const contrastSummary = deterministicMetrics.contrast?.contrastSummary || deterministicMetrics.color?.contrastSummary;
+        const contrastFailures = contrastSummary?.failures || (deterministicMetrics.color?.hasLowContrastText ? 1 : 0);
+        const worstRatio = contrastSummary?.worstRatio || deterministicMetrics.color?.worstContrastRatio || 21.0;
+        if (contrastFailures > 0) {
+          if (worstRatio < 2.0) base -= 25;
+          else if (worstRatio < 3.0) base -= 15;
+          else if (contrastFailures >= 5) base -= 12;
+          else base -= 8;
+        }
+        return Math.max(20, Math.min(100, base));
+      })();
 
   const spacing = criticEvaluation.spacingScore !== undefined
     ? criticEvaluation.spacingScore

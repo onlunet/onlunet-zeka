@@ -29,17 +29,152 @@ import http from 'node:http';
 import { CorporatePalettes } from './corporate-generator.js';
 
 /**
+ * Validates a target URL against SSRF and malicious protocol attacks.
+ * Rejects non-HTTP(S) protocols, credentials, internal/private IPs, loopbacks, and cloud metadata endpoints.
+ */
+export function validateUrlSecurity(urlString) {
+  if (!urlString || typeof urlString !== 'string') {
+    throw new Error('[SECURITY_BLOCKED] URL must be a non-empty string.');
+  }
+
+  // Reject CRLF injection or control characters
+  if (/[\r\n\0\t]/.test(urlString)) {
+    throw new Error('[SECURITY_BLOCKED] URL contains illegal control characters.');
+  }
+
+  const trimmed = urlString.trim();
+  // If URL has an explicit scheme that is not http: or https:, reject immediately
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+    throw new Error(`[SECURITY_BLOCKED] Forbidden protocol scheme in URL '${trimmed}'. Only HTTP and HTTPS are allowed.`);
+  }
+
+  let formatted = trimmed;
+  if (!/^https?:\/\//i.test(formatted)) {
+    formatted = 'https://' + formatted;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(formatted);
+  } catch (err) {
+    throw new Error(`[SECURITY_BLOCKED] Invalid URL format: ${err.message}`);
+  }
+
+  // Protocol check
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`[SECURITY_BLOCKED] Protocol '${protocol}' is forbidden. Only HTTP and HTTPS are allowed.`);
+  }
+
+  // Reject embedded credentials (user:pass@host)
+  if (parsed.username || parsed.password) {
+    throw new Error('[SECURITY_BLOCKED] URLs with user credentials are forbidden.');
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!hostname) {
+    throw new Error('[SECURITY_BLOCKED] URL does not contain a valid hostname.');
+  }
+
+  // Loopback / Localhost names
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.lan') ||
+    hostname.endsWith('.corp') ||
+    hostname.endsWith('.nip.io') ||
+    hostname.endsWith('.sslip.io') ||
+    hostname === 'localtest.me'
+  ) {
+    throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Loopback/internal hostname '${hostname}' is forbidden.`);
+  }
+
+  // IPv6 loopback / private checks
+  if (
+    hostname === '::1' ||
+    hostname === '0:0:0:0:0:0:0:1' ||
+    hostname.startsWith('fe80:') ||
+    hostname.startsWith('fc00:') ||
+    hostname.startsWith('fd00:')
+  ) {
+    throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Private IPv6 address '${hostname}' is forbidden.`);
+  }
+
+  // Hexadecimal / Octal / Decimal integer IPv4 representations (e.g. 0x7f000001, 2130706433, 0177.0.0.1)
+  if (/^0x[0-9a-f]+$/i.test(hostname) || /^\d+$/.test(hostname)) {
+    throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Numeric/encoded IP address '${hostname}' is forbidden.`);
+  }
+
+  // IPv4 dotted-decimal checks
+  const ipv4Parts = hostname.split('.');
+  if (ipv4Parts.length === 4 && ipv4Parts.every(part => /^\d+$/.test(part))) {
+    const [p0, p1, p2, p3] = ipv4Parts.map(p => parseInt(p, 10));
+
+    if (p0 > 255 || p1 > 255 || p2 > 255 || p3 > 255) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Invalid IPv4 octet in '${hostname}'.`);
+    }
+
+    // 127.0.0.0/8 (Loopback)
+    if (p0 === 127) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Loopback IP '${hostname}' is forbidden.`);
+    }
+
+    // 0.0.0.0/8 (Current network)
+    if (p0 === 0) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Zero address '${hostname}' is forbidden.`);
+    }
+
+    // 10.0.0.0/8 (Private)
+    if (p0 === 10) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Private IP '${hostname}' is forbidden.`);
+    }
+
+    // 172.16.0.0/12 (Private: 172.16.x.x - 172.31.x.x)
+    if (p0 === 172 && p1 >= 16 && p1 <= 31) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Private IP '${hostname}' is forbidden.`);
+    }
+
+    // 192.168.0.0/16 (Private)
+    if (p0 === 192 && p1 === 168) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Private IP '${hostname}' is forbidden.`);
+    }
+
+    // 169.254.0.0/16 (Link-Local & Cloud Metadata: AWS/GCP/Azure/DO 169.254.169.254)
+    if (p0 === 169 && p1 === 254) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Cloud metadata/link-local IP '${hostname}' is forbidden.`);
+    }
+
+    // 100.64.0.0/10 (Carrier-grade NAT)
+    if (p0 === 100 && p1 >= 64 && p1 <= 127) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Shared address space '${hostname}' is forbidden.`);
+    }
+
+    // Multicast & Reserved (224.0.0.0/4 and 240.0.0.0/4)
+    if (p0 >= 224) {
+      throw new Error(`[SECURITY_BLOCKED] SSRF Protection: Multicast/reserved IP '${hostname}' is forbidden.`);
+    }
+  }
+
+  return {
+    valid: true,
+    normalizedUrl: formatted,
+    hostname,
+    protocol
+  };
+}
+
+/**
  * Fetches HTML content from a given URL with timeout and standard browser headers.
  * Includes automatic TLS fallback for sites with incomplete intermediate cert chains.
  */
 export async function fetchWebsiteHtml(targetUrl, options = {}) {
+  const security = validateUrlSecurity(targetUrl);
   const timeoutMs = options.timeoutMs || 10000;
   const userAgent = options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-  let urlString = targetUrl.trim();
-  if (!/^https?:\/\//i.test(urlString)) {
-    urlString = 'https://' + urlString;
-  }
+  const urlString = security.normalizedUrl;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -216,6 +351,187 @@ export function matchBrandColorToPalette(hexColor) {
   }
 
   return CorporatePalettes[bestKey] || CorporatePalettes.BLUE;
+}
+
+/**
+ * Intelligent Multi-Level Navigation & Offerings Extractor
+ * Handles unclosed <li>, nested <ul class="sub-menu">, WordPress, Elementor, Bootstrap & custom DOM trees.
+ */
+export function extractNavigationTree(html, baseUrl = '') {
+  if (!html || typeof html !== 'string') return [];
+
+  // Find navigation block
+  let navBlock = '';
+  const navMatches = html.match(/<nav[\s\S]*?<\/nav>/gi) || [];
+  if (navMatches.length > 0) {
+    navBlock = navMatches.sort((a, b) => b.length - a.length)[0];
+  } else {
+    const headerMatch = html.match(/<header[\s\S]*?<\/header>/gi) || [];
+    navBlock = headerMatch.length > 0 ? headerMatch[0] : html;
+  }
+
+  // Tokenize the nav HTML into tags and text
+  const tagRegex = /<(\/?[a-zA-Z0-9]+)([^>]*)>/g;
+  let match;
+
+  const root = { tag: 'root', attrs: {}, children: [] };
+  const stack = [root];
+
+  let lastIndex = 0;
+  while ((match = tagRegex.exec(navBlock)) !== null) {
+    const textBefore = navBlock.substring(lastIndex, match.index);
+    if (textBefore.trim() && stack.length > 0) {
+      const top = stack[stack.length - 1];
+      top.children.push({ type: 'text', text: textBefore });
+    }
+    lastIndex = tagRegex.lastIndex;
+
+    const tagName = match[1].toLowerCase();
+    const rawAttrs = match[2];
+    const isClosing = tagName.startsWith('/');
+    const cleanTag = isClosing ? tagName.substring(1) : tagName;
+
+    const isSelfClosing = /^(img|br|hr|input|meta|link)$/i.test(cleanTag) || rawAttrs.endsWith('/');
+
+    if (isClosing) {
+      let foundIdx = -1;
+      for (let s = stack.length - 1; s > 0; s--) {
+        if (stack[s].tag === cleanTag) {
+          foundIdx = s;
+          break;
+        }
+      }
+      if (foundIdx !== -1) {
+        while (stack.length > foundIdx) {
+          stack.pop();
+        }
+      }
+    } else {
+      // Auto-close preceding <li> if we encounter a new <li> at the same list level
+      if (cleanTag === 'li') {
+        const top = stack[stack.length - 1];
+        if (top.tag === 'li') {
+          stack.pop();
+        }
+      }
+
+      const attrs = {};
+      const attrMatches = rawAttrs.matchAll(/([a-zA-Z0-9_-]+)(?:=["']([^"']*)["'])?/g);
+      for (const am of attrMatches) {
+        attrs[am[1].toLowerCase()] = am[2] !== undefined ? am[2] : true;
+      }
+
+      const node = {
+        tag: cleanTag,
+        attrs,
+        children: []
+      };
+
+      if (stack.length > 0) {
+        stack[stack.length - 1].children.push(node);
+      }
+
+      if (!isSelfClosing) {
+        stack.push(node);
+      }
+    }
+  }
+
+  function getNodeText(node) {
+    if (!node) return '';
+    if (node.type === 'text') return node.text;
+    let t = '';
+    for (const c of (node.children || [])) {
+      t += ' ' + getNodeText(c);
+    }
+    return unescapeHtml(t.replace(/\s+/g, ' ')).trim();
+  }
+
+  function parseNavUl(ulNode, parentTitle = '', level = 1) {
+    const items = [];
+    for (const child of (ulNode.children || [])) {
+      if (child.tag === 'li') {
+        let aNode = null;
+        let nestedUlNode = null;
+
+        for (const c of (child.children || [])) {
+          if (c.tag === 'a' && !aNode) {
+            aNode = c;
+          } else if (c.tag === 'ul') {
+            nestedUlNode = c;
+          } else if (c.tag === 'div') {
+            const subUl = (c.children || []).find(x => x.tag === 'ul');
+            if (subUl) nestedUlNode = subUl;
+          }
+        }
+
+        if (aNode) {
+          let title = getNodeText(aNode).replace(/[▼▶►▼]/g, '').trim();
+          let href = (aNode.attrs?.href || '').trim();
+          let hasNoDirectUrl = !href || href === '#' || href.startsWith('javascript:');
+          let slug = extractSlugFromUrl(href, title) || slugify(title);
+
+          if (title && title.length < 100) {
+            const children = nestedUlNode ? parseNavUl(nestedUlNode, title, level + 1) : [];
+
+            const tLower = title.toLowerCase();
+            const pLower = (parentTitle || '').toLowerCase();
+            const uLower = href.toLowerCase();
+
+            let category = 'page';
+            if (level === 1 && (tLower === 'anasayfa' || tLower === 'ana sayfa')) {
+              category = 'home';
+            } else if (tLower.includes('kurumsal') || tLower.includes('hakkimizda') || tLower.includes('hakkımızda')) {
+              category = 'corporate';
+            } else if (tLower.includes('hizmet') || pLower.includes('hizmet') || uLower.includes('/hizmet')) {
+              category = 'service';
+            } else if (
+              tLower.includes('urun') || tLower.includes('ürün') ||
+              pLower.includes('urun') || pLower.includes('ürün') ||
+              pLower.includes('akü') || pLower.includes('aku') ||
+              tLower.includes('akü') || tLower.includes('aku') ||
+              tLower.includes('forklift') || tLower.includes('transpalet') ||
+              tLower.includes('istif') || tLower.includes('sarj') ||
+              tLower.includes('şarj') || tLower.includes('jenerator') ||
+              tLower.includes('redresor') || tLower.includes('atasman')
+            ) {
+              category = 'product';
+            } else if (tLower.includes('iletisim') || tLower.includes('iletişim') || tLower.includes('teklif') || tLower.includes('bize ulasin')) {
+              category = 'contact';
+            } else if (tLower.includes('blog') || uLower.includes('/blog/')) {
+              category = 'blog';
+            }
+
+            items.push({
+              title,
+              originalUrl: href,
+              hasNoDirectUrl,
+              slug,
+              category,
+              parentCategory: parentTitle || null,
+              level,
+              children
+            });
+          }
+        }
+      }
+    }
+    return items;
+  }
+
+  function findUl(node) {
+    if (node.tag === 'ul') return node;
+    for (const c of (node.children || [])) {
+      const found = findUl(c);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const rootUl = findUl(root);
+  if (!rootUl) return [];
+
+  return parseNavUl(rootUl);
 }
 
 /**
@@ -433,24 +749,33 @@ export function extractWebsiteMetadata(html, sourceUrl = '') {
     result.googleMapsUrl = `https://maps.google.com/maps?q=${query}&output=embed`;
   }
 
-  // 7. Navigation, Services, Products & Subpages Extraction
+  // 7. Navigation, Services, Products & Subpages Extraction (Robust Multi-Level Hierarchy Engine)
   result.pages = [];
-  const menuMatches = html.matchAll(/<li[^>]*class=["'][^"']*menu-item[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
+  result.navigationTree = extractNavigationTree(html, sourceUrl);
+  result.menus = [];
+
   const seenUrls = new Set();
   const seenSlugs = new Set();
 
-  for (const m of menuMatches) {
-    const linkUrl = m[1].trim();
-    let linkTitle = unescapeHtml(m[2]).replace(/<[^>]+>/g, '').trim();
-    if (linkTitle && !seenUrls.has(linkUrl) && !linkUrl.startsWith('#')) {
-      seenUrls.add(linkUrl);
-      result.menus.push({ title: linkTitle, url: linkUrl });
-
+  function walkNavItems(items, parentTitle = '') {
+    for (const item of items) {
+      const linkUrl = item.originalUrl || '';
+      const linkTitle = item.title;
+      const slug = item.slug || slugify(linkTitle);
       const uLower = linkUrl.toLowerCase();
       const tLower = linkTitle.toLowerCase();
-      const slug = extractSlugFromUrl(linkUrl, linkTitle);
 
-      // Skip homepage link
+      result.menus.push({
+        title: linkTitle,
+        url: linkUrl,
+        slug,
+        category: item.category,
+        parentCategory: item.parentCategory,
+        hasNoDirectUrl: item.hasNoDirectUrl,
+        childrenCount: item.children ? item.children.length : 0
+      });
+
+      // Skip homepage
       if (
         tLower === 'anasayfa' ||
         tLower === 'ana sayfa' ||
@@ -459,6 +784,9 @@ export function extractWebsiteMetadata(html, sourceUrl = '') {
         linkUrl === 'https://' ||
         linkUrl === '/'
       ) {
+        if (item.children && item.children.length > 0) {
+          walkNavItems(item.children, linkTitle);
+        }
         continue;
       }
 
@@ -467,53 +795,99 @@ export function extractWebsiteMetadata(html, sourceUrl = '') {
         (tLower === 'hizmetlerimiz' || tLower === 'hizmetler') &&
         (uLower.endsWith('/hizmetlerimiz/') || uLower.endsWith('/hizmetlerimiz') || uLower.endsWith('/hizmetler/') || uLower.endsWith('/hizmetler'))
       ) {
+        if (item.children && item.children.length > 0) {
+          walkNavItems(item.children, linkTitle);
+        }
+        continue;
+      }
+
+      // Root "Ürünlerimiz" / "Ürünler" hub listing
+      if (
+        (tLower === 'urunler' || tLower === 'ürünler' || tLower === 'urunlerimiz' || tLower === 'ürünlerimiz') &&
+        (!linkUrl || linkUrl === '#' || uLower.endsWith('/urunler/') || uLower.endsWith('/urunler') || uLower.endsWith('/urunlerimiz/'))
+      ) {
+        if (item.children && item.children.length > 0) {
+          walkNavItems(item.children, linkTitle);
+        }
         continue;
       }
 
       // Corporate / About subpages
       if (tLower.includes('kurumsal') || tLower.includes('hakkimizda') || uLower.includes('/hakkimizda') || uLower.includes('/kurumsal')) {
-        result.pages.push({
-          title: linkTitle,
-          url: linkUrl,
-          slug: slug || 'kurumsal',
-          category: 'corporate'
-        });
+        if (!seenSlugs.has(slug)) {
+          seenSlugs.add(slug);
+          result.pages.push({
+            title: linkTitle,
+            url: linkUrl,
+            slug: slug || 'kurumsal',
+            category: 'corporate',
+            children: item.children || []
+          });
+        }
+        if (item.children && item.children.length > 0) {
+          walkNavItems(item.children, linkTitle);
+        }
         continue;
       }
 
       // Contact & Proposal shortcuts
       if (uLower.includes('iletisim') || uLower.includes('teklif') || uLower.includes('bize-ulasin')) {
+        if (item.children && item.children.length > 0) {
+          walkNavItems(item.children, linkTitle);
+        }
         continue;
       }
 
       // Blog
       if (uLower.includes('/blog/')) {
+        if (item.children && item.children.length > 0) {
+          walkNavItems(item.children, linkTitle);
+        }
         continue;
       }
 
-      // Services
-      if (uLower.includes('/hizmetlerimiz/') || uLower.includes('/hizmet/')) {
-        result.services.push({
-          title: linkTitle,
-          url: linkUrl,
-          slug,
-          description: '',
-          icon: inferServiceIcon(linkTitle),
-          category: 'service'
-        });
-        continue;
+      // Services vs Products
+      if (item.category === 'service' || tLower.includes('hizmet') || uLower.includes('/hizmetlerimiz/') || uLower.includes('/hizmet/')) {
+        if (!seenSlugs.has(slug)) {
+          seenSlugs.add(slug);
+          result.services.push({
+            title: linkTitle,
+            url: linkUrl,
+            slug,
+            description: '',
+            icon: inferServiceIcon(linkTitle),
+            category: 'service',
+            parentCategory: item.parentCategory,
+            hasNoDirectUrl: item.hasNoDirectUrl,
+            children: item.children || []
+          });
+        }
+      } else {
+        // Products & Subcategories
+        if (!seenSlugs.has(slug)) {
+          seenSlugs.add(slug);
+          result.products.push({
+            title: linkTitle,
+            url: linkUrl,
+            slug,
+            category: 'product',
+            description: '',
+            icon: inferServiceIcon(linkTitle),
+            parentCategory: item.parentCategory,
+            hasNoDirectUrl: item.hasNoDirectUrl,
+            children: item.children || []
+          });
+        }
       }
 
-      // Products / Equipment categories
-      result.products.push({
-        title: linkTitle,
-        url: linkUrl,
-        slug,
-        category: 'product',
-        description: ''
-      });
+      // Recursively walk sub-items (e.g. Traksiyoner Akü -> Elektrikli Forklift Aküleri; Jel Akü -> 6 sub-items)
+      if (item.children && item.children.length > 0) {
+        walkNavItems(item.children, linkTitle);
+      }
     }
   }
+
+  walkNavItems(result.navigationTree);
 
   // If no services were extracted from submenus, search for service section cards or icon-boxes
   if (result.services.length === 0) {
@@ -525,7 +899,8 @@ export function extractWebsiteMetadata(html, sourceUrl = '') {
         result.services.push({
           title: boxTitle,
           description: boxDesc,
-          icon: inferServiceIcon(boxTitle)
+          icon: inferServiceIcon(boxTitle),
+          slug: slugify(boxTitle)
         });
       }
     }
@@ -662,7 +1037,8 @@ export function generateAutonomousPageContent({
   industry = '',
   companyName = '',
   existingDescription = '',
-  url = ''
+  url = '',
+  children = []
 }) {
   const t = (title || '').toLowerCase();
   const slug = extractSlugFromUrl(url, title);
@@ -859,20 +1235,20 @@ export function generateAutonomousPageContent({
     body = `
       <p>Evcil hayvanlarımızın sağlıklı, enerjik ve uzun bir ömür sürmesinin temeli doğru ve dengeli beslenmeden geçer. ${comp}, ${title} kategorisinde Royal Canin, Pro Plan, N&D, Acana, Hill's ve Brit Care gibi dünya çapında kabul görmüş premium markaların yetkili satıcısı olarak yalnızca %100 orijinal, taze ve güvenilir ürünleri sunmaktadır.</p>
       <p>Yavru (kitten/puppy), yetişkin, yaşlı (senior) ya da kısırlaştırılmış (sterilised) dönemlerdeki dostlarımızın protein, vitamin ve mineral ihtiyaçları birbirinden tamamen farklıdır. Mağazamızda ve online sipariş hattımızda; dostunuzun ırkına, kilosuna ve olası alerjik reaksiyonlarına (tahıl hassasiyeti, tüy dökülmesi, sindirim problemleri) en uygun formülü seçebilmeniz için uzman ürün danışmanlığı sağlıyoruz.</p>
-      <p>Özellikle 10 kg, 12 kg, 15 kg gibi ağır mama çuvalları ile kedi kumlarını taşımakta zorlanan müşterilerimiz için Balıkesir genelinde aynı gün kapıya kurye teslimatı hizmeti sunuyoruz. WhatsApp sipariş hattımızdan tek mesajla sipariş verebilir, kapıda ödeme kolaylığıyla dostunuzun mamasını beklemeden temin edebilirsiniz.</p>
+      <p>Özellikle 10 kg, 12 kg, 15 kg gibi ağır mama çuvalları ile kedi kumlarını taşımakta zorlanan müşterilerimiz için bölge genelinde aynı gün kapıya kurye teslimatı hizmeti sunuyoruz. WhatsApp sipariş hattımızdan tek mesajla sipariş verebilir, kapıda ödeme kolaylığıyla dostunuzun mamasını beklemeden temin edebilirsiniz.</p>
     `.trim();
 
     specs = [
       { label: 'Orijinallik & Tedarik', value: 'Yetkili Distribütör Garantili %100 Orijinal Ürünler' },
       { label: 'Son Tüketim Tarihi', value: 'Sürekli Yenilenen Taze Stok Güvencesi (Uzun SKT)' },
       { label: 'Formül Çeşitliliği', value: 'Tahılsız, Düşük Tahıllı, Kısırlaştırılmış, Hipoalerjenik, Monoprotein' },
-      { label: 'Adrese Teslimat', value: 'Balıkesir İçi Aynı Gün Kapıya Hızlı Kurye Servisi' },
+      { label: 'Adrese Teslimat', value: 'Aynı Gün Kapıya Hızlı Kurye Servisi' },
       { label: 'Ödeme & Danışmanlık', value: 'Kapıda Ödeme, Havale/EFT ve Ücretsiz Beslenme Danışmanlığı' }
     ];
 
     features = [
       { icon: '🐾', title: '%100 Orijinal & Taze Stok', desc: 'Sahte veya açıkta beklemiş mamalara karşı doğrudan yetkili distribütörden temin edilen garantili ürünler.' },
-      { icon: '🛵', title: 'Aynı Gün Kapıda Teslimat', desc: 'Ağır mama çuvallarını ve kumları taşımanıza gerek kalmadan Balıkesir içi kapınıza kadar getiriyoruz.' },
+      { icon: '🛵', title: 'Aynı Gün Kapıda Teslimat', desc: 'Ağır mama çuvallarını ve kumları taşımanıza gerek kalmadan kapınıza kadar getiriyoruz.' },
       { icon: '🩺', title: 'Doğru Beslenme Rehberliği', desc: 'Kısırlaştırma, tüy sağlığı, böbrek desteği ve hassas sindirim için en uygun mama önerisi.' },
       { icon: '💬', title: 'WhatsApp Hızlı Sipariş', desc: 'Tek tıkla WhatsApp üzerinden sipariş oluşturun, kuryemiz aynı gün kapınıza teslim etsin.' }
     ];
@@ -881,12 +1257,12 @@ export function generateAutonomousPageContent({
       { step: '01', title: 'İhtiyaç & Irk Tespiti', desc: 'Dostunuzun yaşı, kilosu, kısırlaştırma durumu ve özel besin hassasiyetleri değerlendirilir.' },
       { step: '02', title: 'İdeal Mama & Ürün Seçimi', desc: 'En zengin et oranına ve uygun tane yapısına sahip orijinal marka belirlenir.' },
       { step: '03', title: 'Taze Stoktan Hazırlık', desc: 'Son tüketim tarihi kontrol edilerek siparişiniz özenle paketlenir.' },
-      { step: '04', title: 'Kapınıza Hızlı Teslimat', desc: 'Balıkesir içi kuryemizle aynı gün kapınıza teslim edilir veya mağazadan teslim alınır.' }
+      { step: '04', title: 'Kapınıza Hızlı Teslimat', desc: 'Kuryemizle aynı gün kapınıza teslim edilir veya mağazadan teslim alınır.' }
     ];
 
     faqs = [
       { question: `${title} kapsamındaki mamalar taze ve orijinal mi?`, answer: `${comp} olarak yalnızca resmi distribütör onaylı, orijinal barkodlu ve uzun son tüketim tarihli (SKT) taze mamaları satışa sunuyoruz. Asla açıkta beklemiş veya bayat ürün satmıyoruz.` },
-      { question: 'Ağır mama çuvalları ve kumlar için adrese kurye hizmetiniz var mı?', answer: 'Evet! Balıkesir içi siparişlerinizde 10 kg, 12 kg, 15 kg mama çuvallarını ve kedi kumlarını kapınıza kadar kendi servisimizle ulaştırıyoruz.' },
+      { question: 'Ağır mama çuvalları ve kumlar için adrese kurye hizmetiniz var mı?', answer: 'Evet! Siparişlerinizde 10 kg, 12 kg, 15 kg mama çuvallarını ve kedi kumlarını kapınıza kadar kendi servisimizle ulaştırıyoruz.' },
       { question: 'Kısırlaştırılmış kedi veya köpeğim için hangi mamayı tercih etmeliyim?', answer: 'Kısırlaştırma sonrası metabolizma yavaşlar ve kilo alma eğilimi artar. Düşük yağ oranlı, L-karnitin takviyeli ve idrar yolu pH dengesini koruyan sterilised formülleri öneriyoruz. WhatsApp hattımızdan dostunuza özel öneri alabilirsiniz.' },
       { question: 'WhatsApp üzerinden nasıl sipariş verebilirim?', answer: 'Web sitemizdeki WhatsApp butonuna tıklayarak talep ettiğiniz mama markasını ve adresinizi iletmeniz yeterlidir. Ekibimiz anında stok teyidi verip siparişinizi hazırlar.' }
     ];
@@ -929,6 +1305,29 @@ export function generateAutonomousPageContent({
       { question: `${title} hizmeti için nasıl teklif alabilirim?`, answer: 'Web sitemizdeki online teklif formunu doldurarak veya doğrudan telefon numaramızdan bize ulaşarak 24 saat içinde detaylı teklif alabilirsiniz.' },
       { question: 'Hizmet teslim süreleri ne kadardır?', answer: 'Projenin büyüklüğüne göre karşılıklı mutabakatla belirlenen takvime sıkı sıkıya bağlı kalınarak en hızlı şekilde tamamlanır.' }
     ];
+  }
+
+  // If this offering represents a parent category or hub with child items, embed child product cards
+  if (Array.isArray(children) && children.length > 0) {
+    const subItemsHtml = `
+      <div style="margin-top: 35px; padding: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 1.25rem; color: #0f172a; font-weight: 800;">${title} Kapsamındaki Ürün &amp; Çözümlerimiz</h3>
+        <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 16px;">Bu kategori altında yer alan tüm modelleri ve teknik detayları aşağıdaki bağlantılardan inceleyebilirsiniz:</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px;">
+          ${children.map(c => {
+            const childSlug = c.slug || slugify(c.title);
+            const childPath = c.category === 'service' ? `/hizmetlerimiz/${childSlug}/` : `/${childSlug}/`;
+            return `
+            <a href="/__LANG__${childPath}" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; text-decoration: none; color: #0f172a; font-weight: 700; font-size: 0.92rem; box-shadow: 0 2px 6px rgba(0,0,0,0.02); transition: all 0.2s ease;">
+              <span>${c.title}</span>
+              <span style="color: #2563eb; font-weight: 800;">&rarr;</span>
+            </a>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `.trim();
+    body += '\n' + subItemsHtml;
   }
 
   const seoTitle = `${title} | ${comp}`;
@@ -1020,7 +1419,8 @@ export async function enrichExtractedDataWithAI(extractedData, options = {}) {
       industry,
       companyName,
       existingDescription: s.description,
-      url: s.url
+      url: s.url,
+      children: s.children || []
     });
 
     s.slug = s.slug || pageContent.slug;
@@ -1041,7 +1441,8 @@ export async function enrichExtractedDataWithAI(extractedData, options = {}) {
       `/hizmetlerimiz/${s.slug}/`,
       `/hizmetler/${s.slug}/`,
       `/tr/${s.slug}/`,
-      `/tr/${s.slug}`
+      `/tr/${s.slug}`,
+      `/${s.slug}/`
     ];
   }
   enriched.aiEnrichedFields.push('services_descriptions');
@@ -1056,7 +1457,8 @@ export async function enrichExtractedDataWithAI(extractedData, options = {}) {
         industry,
         companyName,
         existingDescription: p.description,
-        url: p.url
+        url: p.url,
+        children: p.children || []
       });
 
       p.slug = p.slug || pageContent.slug;
@@ -1075,7 +1477,9 @@ export async function enrichExtractedDataWithAI(extractedData, options = {}) {
         `/tr/${p.slug}`,
         `/tr/urunler/${p.slug}`,
         `/${p.slug}/`,
-        `/urunler/${p.slug}/`
+        `/${p.slug}`,
+        `/urunler/${p.slug}/`,
+        `/urunler/${p.slug}`
       ];
     }
     enriched.aiEnrichedFields.push('products_deep_content');
@@ -1141,6 +1545,7 @@ export function mapToCorporateSpec(enrichedData) {
     industry: enrichedData.industry,
     slogan: enrichedData.slogan,
     description: enrichedData.description,
+    navigationTree: enrichedData.navigationTree || [],
     services: enrichedData.services.map(s => ({
       title: s.title,
       description: s.description,
@@ -1155,7 +1560,10 @@ export function mapToCorporateSpec(enrichedData) {
       workflow: s.workflow,
       faqs: s.faqs,
       seoTitle: s.seoTitle,
-      seoDescription: s.seoDescription
+      seoDescription: s.seoDescription,
+      parentCategory: s.parentCategory || null,
+      hasNoDirectUrl: s.hasNoDirectUrl || false,
+      children: s.children || []
     })),
     products: (enrichedData.products || []).map(p => ({
       title: p.title,
@@ -1171,7 +1579,10 @@ export function mapToCorporateSpec(enrichedData) {
       workflow: p.workflow,
       faqs: p.faqs,
       seoTitle: p.seoTitle,
-      seoDescription: p.seoDescription
+      seoDescription: p.seoDescription,
+      parentCategory: p.parentCategory || null,
+      hasNoDirectUrl: p.hasNoDirectUrl || false,
+      children: p.children || []
     })),
     pages: enrichedData.pages || [],
     funfacts: enrichedData.funfacts || [],

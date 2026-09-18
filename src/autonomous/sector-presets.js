@@ -1440,7 +1440,7 @@ export const SubSectorPresets = Object.freeze({
     number: 36,
     parentCategory: 'TECH_SOFTWARE',
     name: 'SaaS & B2B Bulut Yazılımları',
-    keywords: ['saas', 'bulut yazılım', 'b2b yazılım', 'crm', 'erp', 'abonelik yazılım', 'api entegrasyon', 'cloud software'],
+    keywords: ['saas', 'bulut yazılım', 'b2b yazılım', 'crm', 'erp', 'abonelik yazılım', 'api entegrasyon', 'cloud software', 'e-ticaret', 'perakende', 'mağaza', 'online mağaza', 'pazaryeri', 'e-commerce'],
     designTokens: {
       palette: {
         primary: '#6366f1', // Electric Indigo
@@ -3143,23 +3143,29 @@ export function detectSectorPreset({ industry = '', companyName = '', services =
 
   // Fallback defaults if score is 0
   if (!bestMatch || highestScore === 0) {
-    if (corpus.includes('sağlık') || corpus.includes('klinik') || corpus.includes('tedavi')) {
+    if (corpus.includes('sağlık') || corpus.includes('klinik') || corpus.includes('tedavi') || corpus.includes('hastane') || corpus.includes('doktor')) {
       return SubSectorPresets.DIS_KLINIGI_AGIZ_SAGLIGI;
     }
-    if (corpus.includes('inşaat') || corpus.includes('yapı') || corpus.includes('mimarlık')) {
+    if (corpus.includes('inşaat') || corpus.includes('yapı') || corpus.includes('mimarlık') || corpus.includes('proje')) {
       return SubSectorPresets.MUTEAHHITLIK_BUYUK_KONUT;
     }
-    if (corpus.includes('yazılım') || corpus.includes('bilişim') || corpus.includes('kod')) {
+    if (corpus.includes('yazılım') || corpus.includes('bilişim') || corpus.includes('kod') || corpus.includes('e-ticaret') || corpus.includes('perakende') || corpus.includes('mağaza')) {
       return SubSectorPresets.SAAS_BULUT_YAZILIM;
     }
-    if (corpus.includes('enerji') || corpus.includes('solar') || corpus.includes('ges')) {
+    if (corpus.includes('restoran') || corpus.includes('lezzet') || corpus.includes('yemek') || corpus.includes('gurme') || corpus.includes('mutfak')) {
+      return SubSectorPresets.RESTORANLAR_FINE_DINING_STEAK;
+    }
+    if (corpus.includes('hukuk') || corpus.includes('avukat') || corpus.includes('dava') || corpus.includes('arabulucu')) {
+      return SubSectorPresets.HUKUK_BUROLARI_AVUKATLIK;
+    }
+    if (corpus.includes('enerji') || corpus.includes('solar') || corpus.includes('ges') || corpus.includes('akü')) {
       return SubSectorPresets.GUNES_ENERJISI_GES_YENILENEBILIR;
     }
-    if (corpus.includes('lojistik') || corpus.includes('nakliyat') || corpus.includes('kargo')) {
+    if (corpus.includes('lojistik') || corpus.includes('nakliyat') || corpus.includes('kargo') || corpus.includes('navlun')) {
       return SubSectorPresets.ULUSLARARASI_NAKLIYE_FORWARDING;
     }
-    // General corporate consulting fallback
-    return SubSectorPresets.HUKUK_BUROLARI_AVUKATLIK;
+    // General corporate management consulting fallback (clean, generic, no court/legal leakage)
+    return SubSectorPresets.YONETIM_DANISMANLIGI_MA;
   }
 
   return bestMatch;

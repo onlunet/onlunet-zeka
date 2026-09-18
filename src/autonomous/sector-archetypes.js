@@ -572,7 +572,7 @@ export function renderArchetypeHero({
           <span>\ud83d\udcac</span> WhatsApp ile Mama / Kum Sipari\u015f Ver
         </a>
         <a href="tel:${cleanPhone}" style="background: #f0fdf4; border: 1px solid #bbf7d0; color: #064e3b !important; text-decoration: none; padding: 11px; border-radius: 12px; font-size: 0.88rem; font-weight: 700; text-align: center;">
-          \ud83d\udcde Ma\u011faza & Kurye Hatt\u0131: ${phone || '0542 734 48 10'}
+          \ud83d\udcde Ma\u011faza & Kurye Hatt\u0131: ${phone || '0500 000 00 00'}
         </a>
       </div>
     </div>
@@ -913,7 +913,7 @@ export function renderArchetypeCatalog({ archetype, companyName, products = [], 
  * Includes dental appointment simulators, VKE calculators, solar ROI, pet food portion,
  * freight rate calculators, CNC cycle time estimators, etc.
  */
-export function renderArchetypeInteractiveTool({ archetype, companyName, palette }) {
+export function renderArchetypeInteractiveTool({ archetype, companyName, palette, phone }) {
   const tool = archetype.interactiveTool || {};
   const toolType = tool.type || '';
   const borderRadius = archetype.designTokens?.borderRadius || '14px';
@@ -1142,7 +1142,7 @@ calcBmiSim();
         </div>
 
         <div style="margin-top: 24px;">
-          <a id="pet-sim-whatsapp-btn" href="https://wa.me/905427344810?text=Merhaba,%20mama%20siparişi%20vermek%20istiyorum." target="_blank" style="display: block; width: 100%; box-sizing: border-box; background: #25D366; color: #ffffff !important; text-decoration: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 0.95rem; text-align: center; box-shadow: 0 4px 14px rgba(37,211,102,0.4);">
+          <a id="pet-sim-whatsapp-btn" href="https://wa.me/${(phone || '05000000000').replace(/[^0-9]/g, '')}?text=Merhaba,%20mama%20siparişi%20vermek%20istiyorum." target="_blank" style="display: block; width: 100%; box-sizing: border-box; background: #25D366; color: #ffffff !important; text-decoration: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 0.95rem; text-align: center; box-shadow: 0 4px 14px rgba(37,211,102,0.4);">
             💬 Bu Formüle Uygun Mamayı WhatsApp'tan Sor
           </a>
         </div>

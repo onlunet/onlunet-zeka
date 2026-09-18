@@ -96,8 +96,16 @@ import { ProviderCapabilities } from '../providers/provider-capabilities.js';
 import { createRoutingTelemetry } from '../providers/routing-telemetry.js';
 import { createProjectGenerator, TemplateMetadata } from '../autonomous/project-generator.js';
 import { createCorporateGenerator, CorporatePalettes } from '../autonomous/corporate-generator.js';
-import { inspectAndModernizeWebsite } from '../autonomous/site-extractor.js';
+import { createZipFromDirectory } from '../autonomous/zip-exporter.js';
+import { deployProject } from '../autonomous/deploy-engine.js';
+import { inspectAndModernizeWebsite, validateUrlSecurity } from '../autonomous/site-extractor.js';
 import { inspectAndModernizeGoogleMaps } from '../autonomous/maps-to-corporate.js';
+import { synthesizeAutonomousWebsite, GenerationMode } from '../autonomous/website-synthesis-engine.js';
+import { auditStoredDesign, evaluateVisualCommercialDesign } from '../autonomous/visual-commercial-critic.js';
+import { normalizeCompanyProfile } from '../autonomous/company-profile-normalizer.js';
+import { getBackendCapabilityRegistry, validateBackendCapabilities } from '../autonomous/backend-capability-registry.js';
+import { validateReferenceImageSecurity, storeReferenceImageSecurely, analyzeReferenceImage, computeReferenceDesignMatch, buildImageDesignSpec, LayoutFamilies } from '../autonomous/reference-image-analyzer.js';
+import { ingestMultiSourceCorporateData } from '../autonomous/multi-source-adapter.js';
 import { runSelfHealingAudit } from '../autonomous/browser-qa-inspector.js';
 import { runAgentSquadTask } from '../orchestration/agent-squad-runner.js';
 import { scrapeGoogleMapsListing } from '../autonomous/maps-scraper.js';
@@ -110,6 +118,7 @@ import { evaluateVisualDesign } from '../autonomous/visual-critic.js';
 import { computeCompositeVisualScore } from '../autonomous/visual-score-engine.js';
 import { analyzeScreenshot, ANALYSIS_PROFILES } from '../autonomous/visual-intelligence.js';
 import { createDesignProposal, validateDesignProposal } from '../autonomous/visual-proposal-engine.js';
+import { verifyTokenMatches } from '../autonomous/visual-token-system.js';
 import { mapFindingsToProposals } from '../autonomous/visual-remediation-policy.js';
 import { executeDesignProposal, rollbackVisualPatch, getAuditLedger } from '../autonomous/visual-refactoring-engine.js';
 import { runVisualRegressionCycle } from '../autonomous/visual-regression-loop.js';
@@ -315,6 +324,47 @@ function listProjects(workspaceRoot) {
   return projects;
 }
 
+/**
+ * FAZ 74.2: Canonical Corporate Target Directory Validator
+ * Enforces boundary containment and blocks path traversal attacks.
+ */
+function validateCorporateTargetDirectory(targetDir, workspaceRoot) {
+  if (!targetDir || typeof targetDir !== 'string') {
+    throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Invalid targetDirectory: must be a non-empty string`);
+  }
+
+  // 1. Block absolute paths (POSIX /... or Windows C:\... or \\...)
+  if (path.isAbsolute(targetDir) || /^[a-zA-Z]:[\\\/]/.test(targetDir) || /^\\\\/.test(targetDir)) {
+    throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Absolute path not allowed for targetDirectory: ${targetDir}`);
+  }
+
+  // 2. Block traversal tokens
+  const normalized = targetDir.replace(/\\/g, '/').trim();
+  const segments = normalized.split('/');
+  if (segments.some(seg => seg === '..' || seg === '.')) {
+    throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Path traversal blocked in targetDirectory: ${targetDir}`);
+  }
+
+  // 3. Resolve canonical path against workspaceRoot
+  const resolvedRoot = path.resolve(workspaceRoot || PROJECT_ROOT);
+  const resolvedTarget = path.resolve(resolvedRoot, normalized);
+
+  // 4. Must stay strictly within workspaceRoot
+  if (!resolvedTarget.startsWith(resolvedRoot + path.sep) && resolvedTarget !== resolvedRoot) {
+    throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Boundary violation: targetDirectory escapes workspace root`);
+  }
+
+  // 5. If targetDir starts with 'projeler' or is intended for projeler:
+  if (normalized.startsWith('projeler/') || normalized === 'projeler') {
+    const projelerRoot = path.resolve(resolvedRoot, 'projeler');
+    if (!resolvedTarget.startsWith(projelerRoot + path.sep) || resolvedTarget === projelerRoot) {
+      throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Boundary violation: corporate project must reside inside 'projeler/'`);
+    }
+  }
+
+  return path.relative(resolvedRoot, resolvedTarget).replace(/\\/g, '/');
+}
+
 export function createApplicationServer({
   aiGateway = createAIGateway({ providerAdapter: createStandardLocalProvider() }),
   pipelineRunner = runApplicationPipeline,
@@ -372,9 +422,10 @@ export function createApplicationServer({
   });
 
   let activeWorkspace = null;
-  // DEF-01 Remediation: legacyActivePlan is ONLY a non-authoritative fallback for legacy tests
-  // that do not provide a jobId. All Job-scoped executions and mutations strictly resolve plans
-  // from authoritativeEngine.getJobPlan(jobId).
+  // FAZ 74.2: Authoritative Corporate Plan Isolation Registry
+  // Binds corporate authority strictly by planId, targetDirectory, and slug to eliminate cross-project concurrency leakage.
+  const corporatePlanRegistry = new Map();
+  let latestActivePlanId = null;
   let legacyActivePlan = null;
 
   const server = http.createServer(async (req, res) => {
@@ -384,7 +435,7 @@ export function createApplicationServer({
       res.end(JSON.stringify(data));
     };
 
-    const MAX_BODY_SIZE = 5 * 1024 * 1024; // 5MB
+    const MAX_BODY_SIZE = 15 * 1024 * 1024; // 15MB to allow 10MB binary + base64 overhead
     // Helper to read and parse JSON body
     const readBody = () => new Promise((resolve, reject) => {
       let data = '';
@@ -417,6 +468,43 @@ export function createApplicationServer({
           const html = fs.readFileSync(htmlPath, 'utf-8');
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           return res.end(html);
+        }
+      }
+
+      // 1.1 Static reference uploads serving (FAZ 78)
+      if (req.method === 'GET' && req.url.startsWith('/storage/reference-uploads/')) {
+        const cleanUrl = req.url.split('?')[0];
+        const rel = cleanUrl.replace(/^\/storage\/reference-uploads\//, '');
+        if (!rel.includes('..') && !rel.includes(':')) {
+          const filePath = path.join(PROJECT_ROOT, 'storage', 'reference-uploads', rel);
+          if (fs.existsSync(filePath)) {
+            const ext = path.extname(filePath).toLowerCase();
+            const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'application/octet-stream';
+            res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' });
+            return fs.createReadStream(filePath).pipe(res);
+          }
+        }
+      }
+
+      // 1.2 GrapesJS Visual Web Builder UI
+      if (req.method === 'GET' && (req.url === '/admin/editor' || req.url.startsWith('/admin/editor?'))) {
+        const editorPath = path.join(PUBLIC_DIR, 'admin-editor.html');
+        if (fs.existsSync(editorPath)) {
+          const html = fs.readFileSync(editorPath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          return res.end(html);
+        }
+      }
+
+      // 1.3 GrapesJS Vendor Assets Serving (Open Source Integration)
+      if (req.method === 'GET' && req.url.startsWith('/vendor/grapesjs/')) {
+        const rel = req.url.replace(/^\/vendor\/grapesjs\//, '').split('?')[0];
+        const filePath = path.join(PROJECT_ROOT, 'node_modules', 'grapesjs', 'dist', rel);
+        if (fs.existsSync(filePath) && !rel.includes('..')) {
+          const ext = path.extname(filePath).toLowerCase();
+          const mime = ext === '.css' ? 'text/css' : ext === '.js' ? 'application/javascript' : 'application/octet-stream';
+          res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' });
+          return fs.createReadStream(filePath).pipe(res);
         }
       }
 
@@ -629,13 +717,480 @@ export function createApplicationServer({
         });
       }
 
-      // 3.5 Corporate Portal Synthesis & Planning API
+      // 3.4.2 FAZ 75: Authoritative Backend Capability Registry API
+      if (req.method === 'GET' && req.url === '/api/corporate/capabilities') {
+        return sendJson(200, {
+          success: true,
+          registry: getBackendCapabilityRegistry()
+        });
+      }
+
+      // 3.4.2b Corporate Project ZIP Export API
+      if (req.method === 'GET' && req.url.startsWith('/api/corporate/export-zip/')) {
+        const slug = req.url.slice('/api/corporate/export-zip/'.length).split('?')[0].trim();
+        const safeSlug = slug.replace(/[^a-zA-Z0-9_-]/g, '');
+        const projDir = path.resolve(PROJECT_ROOT, 'projeler', safeSlug);
+
+        if (!fs.existsSync(projDir)) {
+          return sendJson(404, { success: false, error: `Proje klasörü bulunamadı: ${safeSlug}` });
+        }
+
+        try {
+          const zipBuffer = createZipFromDirectory(projDir, { excludes: ['node_modules', '.git'] });
+          res.writeHead(200, {
+            'Content-Type': 'application/zip',
+            'Content-Disposition': `attachment; filename="${safeSlug}-onlunet-proje.zip"`,
+            'Content-Length': zipBuffer.length
+          });
+          res.end(zipBuffer);
+          return;
+        } catch (zipErr) {
+          return sendJson(500, { success: false, error: zipErr.message });
+        }
+      }
+
+      // 3.4.2c Corporate Project Remote Deploy API
+      if (req.method === 'POST' && req.url.startsWith('/api/corporate/deploy/')) {
+        const slug = req.url.slice('/api/corporate/deploy/'.length).split('?')[0].trim();
+        const safeSlug = slug.replace(/[^a-zA-Z0-9_-]/g, '');
+        const projDir = path.resolve(PROJECT_ROOT, 'projeler', safeSlug);
+
+        if (!fs.existsSync(projDir)) {
+          return sendJson(404, { success: false, error: `Proje klasörü bulunamadı: ${safeSlug}` });
+        }
+
+        const body = await readBody();
+        try {
+          const deployRes = await deployProject({
+            projectDir: projDir,
+            targetType: body.targetType || 'zip_stream',
+            options: body
+          });
+          return sendJson(200, { success: true, result: deployRes });
+        } catch (deployErr) {
+          return sendJson(500, { success: false, error: deployErr.message });
+        }
+      }
+
+      // 3.4.2d Privacy-First Click Radar Analytics Beacon
+      if (req.method === 'POST' && (req.url === '/api/v1/analytics/click-event' || req.url === '/api/analytics/click-event')) {
+        return sendJson(200, { success: true, recorded: true });
+      }
+
+      // 3.4.3 FAZ 75: Backend Capability Validation API
+      if (req.method === 'POST' && req.url === '/api/corporate/validate-capabilities') {
+        const body = await readBody();
+        const validation = validateBackendCapabilities(body.capabilities || body.requiredCapabilities || []);
+        return sendJson(validation.blocked ? 409 : 200, {
+          success: !validation.blocked,
+          validation
+        });
+      }
+
+      // 3.4.4 FAZ 75 & FAZ 78: Reference Screenshot / Template Image Upload & Analysis API
+      if (req.method === 'POST' && req.url === '/api/corporate/upload-reference') {
+        const body = await readBody();
+        try {
+          let buffer = null;
+          const origName = body.originalName || body.filename || (body.imagePath ? path.basename(body.imagePath) : (body.referenceImagePath ? path.basename(body.referenceImagePath) : 'reference.png'));
+          if (body.imageBase64 && typeof body.imageBase64 === 'string') {
+            buffer = Buffer.from(body.imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, ''), 'base64');
+          } else if ((body.imagePath || body.referenceImagePath) && typeof (body.imagePath || body.referenceImagePath) === 'string') {
+            const rawPath = body.imagePath || body.referenceImagePath;
+            const safePath = path.resolve(PROJECT_ROOT, rawPath);
+            if (fs.existsSync(safePath)) {
+              buffer = fs.readFileSync(safePath);
+            }
+          }
+
+          if (!buffer) {
+            return sendJson(400, {
+              success: false,
+              error: 'imageBase64 (base64 string) veya imagePath gereklidir.'
+            });
+          }
+
+          const stored = storeReferenceImageSecurely(buffer, origName, {
+            storageBaseDir: PROJECT_ROOT
+          });
+
+          const analysis = analyzeReferenceImage({
+            imageBuffer: buffer,
+            imagePath: stored.storagePath,
+            notes: body.notes || body.inspirationNotes || ''
+          });
+
+          const fidelityMode = body.fidelityMode || body.referenceImageFidelity || 'exact';
+          const designSpec = buildImageDesignSpec({
+            analysis,
+            fidelityMode,
+            viewport: body.viewport
+          });
+
+          const relPath = path.relative(PROJECT_ROOT, stored.storagePath).replace(/\\/g, '/');
+
+          return sendJson(200, {
+            success: true,
+            file: stored,
+            referenceId: stored.uuid,
+            imagePath: relPath,
+            imageUrl: `/${relPath}`,
+            analysis,
+            designSpec,
+            fidelityMode,
+            layoutFamily: designSpec.layoutFamily
+          });
+        } catch (uploadErr) {
+          const isSecurity = uploadErr.message && uploadErr.message.includes('SECURITY_VIOLATION');
+          return sendJson(isSecurity ? 403 : 500, {
+            success: false,
+            blocked: isSecurity,
+            error: uploadErr.message
+          });
+        }
+      }
+
+      // 3.4.5 FAZ 75: Multi-Source Corporate Ingestion & Normalization API
+      if (req.method === 'POST' && req.url === '/api/corporate/multi-source-ingest') {
+        const body = await readBody();
+        try {
+          let websiteData = body.websiteData || null;
+          let mapsData = body.mapsData || null;
+
+          if (!websiteData && body.websiteUrl && typeof body.websiteUrl === 'string' && body.websiteUrl.trim()) {
+            try {
+              websiteData = await inspectAndModernizeWebsite(body.websiteUrl.trim(), { timeoutMs: 10000 });
+            } catch (wErr) {
+              console.warn('[MULTI-SOURCE WEBPAGE SCRAPE WARNING]:', wErr.message);
+            }
+          }
+
+          if (!mapsData && body.mapsUrl && typeof body.mapsUrl === 'string' && body.mapsUrl.trim()) {
+            try {
+              mapsData = await inspectAndModernizeGoogleMaps(body.mapsUrl.trim(), { timeoutMs: 15000 });
+            } catch (mErr) {
+              console.warn('[MULTI-SOURCE MAPS SCRAPE WARNING]:', mErr.message);
+            }
+          }
+
+          const result = await ingestMultiSourceCorporateData({
+            manual: body.manual || body,
+            websiteUrl: body.websiteUrl,
+            websiteData,
+            mapsUrl: body.mapsUrl,
+            mapsData,
+            referenceImage: body.referenceImage,
+            referenceImagePath: body.referenceImagePath,
+            requiredCapabilities: body.requiredCapabilities || [],
+            options: { storageBaseDir: PROJECT_ROOT }
+          });
+
+          return sendJson(result.isGenerationBlocked ? 409 : 200, {
+            success: !result.isGenerationBlocked,
+            ...result
+          });
+        } catch (ingestErr) {
+          return sendJson(500, {
+            success: false,
+            error: `Multi-source veri ayrıştırma başarısız oldu: ${ingestErr.message}`
+          });
+        }
+      }
+
+      // 3.5 Corporate Portal Synthesis & Planning API (FAZ 74.1 Genuine Autonomous Orchestration)
       if (req.method === 'POST' && req.url === '/api/corporate/plan') {
         const body = await readBody();
         if (!activeWorkspace) {
           activeWorkspace = createProjectWorkspace({ rootPath: PROJECT_ROOT });
         }
+
+        // FAZ 75: Capability Gate Check
+        const requestedCaps = Array.isArray(body.requiredCapabilities) ? [...body.requiredCapabilities] : [];
+        if (body.teamRequired === true) requestedCaps.push('team');
+        if (body.testimonialsRequired === true) requestedCaps.push('testimonials');
+        if (body.faqRequired === true) requestedCaps.push('faq');
+        if (body.caseStudiesRequired === true) requestedCaps.push('case_studies');
+        if (body.brandReferencesRequired === true) requestedCaps.push('brand_references');
+        if (body.galleryRequired === true) requestedCaps.push('gallery');
+
+        if (requestedCaps.length > 0) {
+          const capValidation = validateBackendCapabilities(requestedCaps);
+          if (capValidation.blocked && body.bypassCapabilityGate !== true) {
+            return sendJson(409, {
+              success: false,
+              blocked: true,
+              error: capValidation.message,
+              capabilityValidation: capValidation
+            });
+          }
+        }
+
+        // FAZ 76: SSRF & URL Security Validation
+        if (body.websiteUrl) {
+          try {
+            validateUrlSecurity(body.websiteUrl);
+          } catch (urlErr) {
+            return sendJson(403, { success: false, blocked: true, error: urlErr.message });
+          }
+        }
+        if (Array.isArray(body.referenceUrls)) {
+          for (const refUrl of body.referenceUrls) {
+            try {
+              if (refUrl && typeof refUrl === 'string' && refUrl.trim()) {
+                validateUrlSecurity(refUrl.trim());
+              }
+            } catch (refErr) {
+              return sendJson(403, { success: false, blocked: true, error: refErr.message });
+            }
+          }
+        }
+
+        // FAZ 76 & FAZ 78: Reference Image Security & Ingestion
+        let refAnalysis = body.referenceAnalysis || null;
+        let imageDesignSpec = body.imageDesignSpec || null;
+        const fidelityMode = body.referenceImageFidelity || body.fidelityMode || 'exact';
+
+        if (body.referenceImagePath || body.referenceImage) {
+          try {
+            const rawBuf = body.referenceImage ? Buffer.from(body.referenceImage.replace(/^data:image\/[a-zA-Z]+;base64,/, ''), 'base64') : null;
+            validateReferenceImageSecurity({
+              filePath: body.referenceImagePath,
+              buffer: rawBuf,
+              originalName: body.referenceImageName
+            });
+
+            if (!refAnalysis) {
+              let buffer = rawBuf;
+              if (!buffer && body.referenceImagePath) {
+                const p = path.resolve(PROJECT_ROOT, body.referenceImagePath);
+                if (fs.existsSync(p)) buffer = fs.readFileSync(p);
+              }
+              if (buffer) {
+                refAnalysis = analyzeReferenceImage({ imageBuffer: buffer, imagePath: body.referenceImagePath });
+                imageDesignSpec = buildImageDesignSpec({ analysis: refAnalysis, fidelityMode });
+              }
+            }
+          } catch (imgErr) {
+            return sendJson(403, { success: false, blocked: true, error: imgErr.message });
+          }
+        }
+
+        if (refAnalysis) {
+          if (!imageDesignSpec || imageDesignSpec.fidelityMode !== fidelityMode) {
+            imageDesignSpec = buildImageDesignSpec({ analysis: refAnalysis, fidelityMode });
+          }
+        }
+
+        let autonomousResult = null;
+        if (body.forceLegacy !== true) {
+          try {
+            autonomousResult = await synthesizeAutonomousWebsite({
+              generationMode: GenerationMode.AUTONOMOUS_SYNTHESIS,
+              manual: {
+                companyName: body.companyName,
+                industry: body.industry,
+                subSectorId: body.subSectorId,
+                slogan: body.slogan,
+                description: body.description,
+                services: body.services,
+                products: body.products,
+                contact: body.contact,
+                theme: body.theme,
+                inspirationNotes: body.inspirationNotes,
+                layoutPreferences: body.layoutPreferences,
+                isFoodHospitality: body.isFoodHospitality,
+                coverPhotoUrl: body.coverPhotoUrl,
+                requiredCapabilities: requestedCaps
+              },
+              websiteData: (body.referenceUrls && body.referenceUrls.length > 0) ? { url: body.referenceUrls[0] } : null,
+              mapsData: (body.googleRating || body.googleReviews || body.googleMapsUrl || body.googleMapsDirectUrl) ? {
+                googleRating: body.googleRating,
+                googleReviewCount: body.googleReviewCount,
+                googleReviews: body.googleReviews,
+                googleMapsUrl: body.googleMapsUrl || body.googleMapsDirectUrl,
+                coverPhotoUrl: body.coverPhotoUrl
+              } : null,
+              options: {
+                skipBrowserRender: true,
+                inspirationNotes: body.inspirationNotes,
+                subProfile: body.subSectorId || body.theme,
+                requiredCapabilities: requestedCaps,
+                referenceImage: body.referenceImage,
+                referenceImagePath: body.referenceImagePath,
+                referenceAnalysis: refAnalysis,
+                fidelityMode
+              }
+            });
+          } catch (synthErr) {
+            console.warn('[AUTONOMOUS SYNTHESIS API FALLBACK]', synthErr.message);
+          }
+        }
+
+        // 1. Genuine Autonomous Synthesis Success Path
+        if (autonomousResult && autonomousResult.success) {
+          const corporateGen = createCorporateGenerator();
+          const targetDirSlug = (body.companyName || 'kurumsal-proje')
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+          const rawTargetDirectory = body.targetDirectory || body.targetDir || `projeler/${targetDirSlug}`;
+          const targetDirectory = validateCorporateTargetDirectory(rawTargetDirectory, activeWorkspace.rootPath);
+
+          // Prepare scaffolding for disk mutation when user approves
+          const diskScaffold = corporateGen.synthesizeCorporateProject({
+            companyName: body.companyName,
+            subSectorId: body.subSectorId,
+            industry: body.industry,
+            slogan: body.slogan,
+            description: body.description,
+            services: body.services,
+            products: body.products,
+            contact: body.contact,
+            theme: body.theme,
+            adminUser: body.adminUser,
+            targetDir: targetDirectory,
+            referenceUrls: body.referenceUrls,
+            layoutPreferences: body.layoutPreferences,
+            inspirationNotes: body.inspirationNotes,
+            googleMapsUrl: body.googleMapsUrl,
+            googleMapsDirectUrl: body.googleMapsDirectUrl,
+            googleRating: body.googleRating,
+            googleReviewCount: body.googleReviewCount,
+            googleReviews: body.googleReviews,
+            isFoodHospitality: body.isFoodHospitality,
+            coverPhotoUrl: body.coverPhotoUrl,
+            imageDesignSpec,
+            referenceAnalysis: refAnalysis,
+            referenceImageFidelity: fidelityMode,
+            fidelityMode,
+            layoutFamily: body.layoutFamily
+          });
+
+          const nonPublicFiles = diskScaffold.files.filter(f => f.path !== 'public/index.html' && !f.path.endsWith('/public/index.html'));
+          const files = [
+            {
+              path: 'public/index.html',
+              purpose: 'Otonom Sıfırdan Sentezlenmiş Web Sitesi Arayüzü (HTML5 + Parametrik CSS3)',
+              content: (body.referenceImagePath || body.referenceImage || imageDesignSpec || refAnalysis || body.layoutFamily || !autonomousResult?.composition?.html)
+                ? (diskScaffold.files.find(f => f.path === 'public/index.html')?.content || autonomousResult.composition.html)
+                : autonomousResult.composition.html
+            },
+            ...nonPublicFiles,
+            {
+              path: 'storage/design-fingerprint.json',
+              purpose: 'Tasarım Parmak İzi & İskelet İmzası',
+              content: JSON.stringify(diskScaffold.layoutFingerprint || autonomousResult.designFingerprint, null, 2)
+            },
+            {
+              path: 'storage/design-reasoning.json',
+              purpose: '20 Stratejik Tasarım Kararı & Gerekçeleri',
+              content: JSON.stringify(autonomousResult.designStrategy, null, 2)
+            },
+            {
+              path: 'storage/layout-graph.json',
+              purpose: 'Dinamik Bölüm & Düzen Grafiği',
+              content: JSON.stringify(autonomousResult.layoutGraph, null, 2)
+            },
+            {
+              path: 'storage/design-system.json',
+              purpose: 'Tasarım Sistemi Tokenları (WCAG AA Uyumlu)',
+              content: JSON.stringify(autonomousResult.designSystem, null, 2)
+            }
+          ];
+
+          const synthesis = {
+            ...diskScaffold,
+            projectName: body.companyName || diskScaffold.projectName || 'Kurumsal İşletme',
+            description: `Sıfırdan Otonom Tasarım Sentezi — ${autonomousResult.designStrategy.industryCategory}`,
+            files,
+            targetDirectory,
+            spec: diskScaffold.spec,
+            slug: diskScaffold.slug,
+            layoutFamily: diskScaffold.layoutFamily,
+            layoutFingerprint: diskScaffold.layoutFingerprint,
+            imageDesignSpec: diskScaffold.imageDesignSpec || imageDesignSpec,
+            referenceAnalysis: diskScaffold.referenceAnalysis || refAnalysis,
+            fidelityMode: diskScaffold.fidelityMode || fidelityMode,
+            metadata: {
+              ...diskScaffold.metadata,
+              industry: body.industry || autonomousResult.designStrategy.industryCategory,
+              generationMode: 'AUTONOMOUS_SYNTHESIS',
+              generationId: autonomousResult.generationId,
+              designFingerprint: diskScaffold.layoutFingerprint || autonomousResult.designFingerprint,
+              layoutFamily: diskScaffold.layoutFamily
+            }
+          };
+
+          const generatedPlan = corporateGen.createCorporatePlan({
+            synthesis,
+            workspaceRoot: activeWorkspace.rootPath
+          });
+
+          // FAZ 74.2: Register in Corporate Plan Isolation Registry
+          const planRecord = {
+            id: generatedPlan.id,
+            plan: generatedPlan,
+            targetDirectory,
+            projectName: body.companyName || diskScaffold.projectName || 'Kurumsal İşletme',
+            slug: path.basename(targetDirectory),
+            fingerprint: diskScaffold.layoutFingerprint?.computedHash || autonomousResult.designFingerprint?.computedHash || generatedPlan.id,
+            createdAt: Date.now(),
+            status: 'ACTIVE',
+            consumedAt: null,
+            tenantId: body.tenantId || req.headers['x-tenant-id'] || null
+          };
+          corporatePlanRegistry.set(generatedPlan.id, planRecord);
+          latestActivePlanId = generatedPlan.id;
+
+          if (body.jobId) {
+            const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
+            authoritativeEngine.setJobPlan(body.jobId, generatedPlan, { tenantId });
+          } else {
+            legacyActivePlan = generatedPlan;
+          }
+
+          const plan = {
+            id: generatedPlan.id,
+            intent: `Sıfırdan Otonom Tasarım Sentezi: '${body.companyName}' (${autonomousResult.designStrategy.industryCategory})`,
+            analysis: `Otonom Tasarım Sentez Motoru: ${autonomousResult.layoutGraph.sectionCount} dinamik bölüm, '${diskScaffold.layoutFamily}' düzen ailesi ve özgün tasarım parmak izi ile sıfırdan oluşturuldu. Şablon veya klon kullanılmadı.`,
+            proposedCommands: generatedPlan.expectedCommands,
+            proposedFileChanges: generatedPlan.expectedFileChanges,
+            proposedFileMutations: generatedPlan.authoritativeFileMutations,
+            riskLevel: 'LOW',
+            requiresApproval: true
+          };
+
+          return sendJson(200, {
+            success: true,
+            generationMode: 'AUTONOMOUS_SYNTHESIS',
+            generationId: autonomousResult.generationId,
+            previewUrl: autonomousResult.report?.previewUrl,
+            designFingerprint: diskScaffold.layoutFingerprint || autonomousResult.designFingerprint,
+            layoutFamily: diskScaffold.layoutFamily,
+            layoutFingerprint: diskScaffold.layoutFingerprint,
+            imageDesignSpec: diskScaffold.imageDesignSpec || imageDesignSpec,
+            referenceAnalysis: diskScaffold.referenceAnalysis || refAnalysis,
+            fidelityMode: diskScaffold.fidelityMode || fidelityMode,
+            referenceImagePath: body.referenceImagePath || null,
+            referenceId: body.referenceId || null,
+            traceableDecisions: autonomousResult.traceableDecisions,
+            referenceDesignMatch: autonomousResult.referenceDesignMatch || null,
+            capabilityValidation: autonomousResult.capabilityValidation || null,
+            qaReport: generatedPlan.qaReport || null,
+            informationArchitecture: generatedPlan.informationArchitecture || null,
+            synthesis,
+            plan,
+            authoritativePlanId: generatedPlan.id,
+            jobId: body.jobId || null
+          });
+        }
+
+        // 2. Legacy Fallback Path (if autonomous synthesis fails or forceLegacy is requested)
         const corporateGen = createCorporateGenerator();
+        const rawTargetDir = body.targetDirectory || body.targetDir || `projeler/${(body.companyName || 'kurumsal-proje').toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+        const targetDirectory = validateCorporateTargetDirectory(rawTargetDir, activeWorkspace.rootPath);
+
         const synthesis = corporateGen.synthesizeCorporateProject({
           companyName: body.companyName,
           subSectorId: body.subSectorId,
@@ -647,7 +1202,7 @@ export function createApplicationServer({
           contact: body.contact,
           theme: body.theme,
           adminUser: body.adminUser,
-          targetDir: body.targetDirectory || body.targetDir,
+          targetDir: targetDirectory,
           referenceUrls: body.referenceUrls,
           layoutPreferences: body.layoutPreferences,
           inspirationNotes: body.inspirationNotes,
@@ -657,13 +1212,33 @@ export function createApplicationServer({
           googleReviewCount: body.googleReviewCount,
           googleReviews: body.googleReviews,
           isFoodHospitality: body.isFoodHospitality,
-          coverPhotoUrl: body.coverPhotoUrl
+          coverPhotoUrl: body.coverPhotoUrl,
+          imageDesignSpec,
+          referenceAnalysis: refAnalysis,
+          referenceImageFidelity: fidelityMode,
+          fidelityMode,
+          layoutFamily: body.layoutFamily
         });
 
         const generatedPlan = corporateGen.createCorporatePlan({
           synthesis,
           workspaceRoot: activeWorkspace.rootPath
         });
+
+        const planRecord = {
+          id: generatedPlan.id,
+          plan: generatedPlan,
+          targetDirectory,
+          projectName: body.companyName || synthesis.projectName || 'Kurumsal İşletme',
+          slug: path.basename(targetDirectory),
+          fingerprint: synthesis.layoutFingerprint?.computedHash || generatedPlan.id,
+          createdAt: Date.now(),
+          status: 'ACTIVE',
+          consumedAt: null,
+          tenantId: body.tenantId || req.headers['x-tenant-id'] || null
+        };
+        corporatePlanRegistry.set(generatedPlan.id, planRecord);
+        latestActivePlanId = generatedPlan.id;
 
         if (body.jobId) {
           const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
@@ -674,10 +1249,20 @@ export function createApplicationServer({
 
         return sendJson(200, {
           success: true,
+          generationMode: 'LEGACY_FALLBACK',
+          layoutFamily: synthesis.layoutFamily,
+          layoutFingerprint: synthesis.layoutFingerprint,
+          imageDesignSpec: synthesis.imageDesignSpec || imageDesignSpec,
+          referenceAnalysis: synthesis.referenceAnalysis || refAnalysis,
+          fidelityMode: synthesis.fidelityMode || fidelityMode,
+          referenceImagePath: body.referenceImagePath || null,
+          designFingerprint: synthesis.layoutFingerprint,
+          qaReport: generatedPlan.qaReport || null,
+          informationArchitecture: generatedPlan.informationArchitecture || null,
           synthesis,
           plan: {
             intent: synthesis.description,
-            analysis: `Kurumsal Proje Tasarlandı: '${synthesis.projectName}' (${synthesis.metadata.industry}). OnluNet-Kurumsal Admin Paneli ve Özel Frontend dahil ${synthesis.files.length} dosya hazırlandı.`,
+            analysis: `Kurumsal Proje Tasarlandı: '${synthesis.projectName}' (${synthesis.metadata.industry}). Düzen: ${synthesis.layoutFamily}. ${synthesis.files.length} dosya hazırlandı.`,
             proposedCommands: generatedPlan.expectedCommands,
             proposedFileChanges: generatedPlan.expectedFileChanges,
             proposedFileMutations: generatedPlan.authoritativeFileMutations,
@@ -687,6 +1272,23 @@ export function createApplicationServer({
           authoritativePlanId: generatedPlan.id,
           jobId: body.jobId || null
         });
+      }
+
+      // 3.5c Invalidate Authoritative Corporate Plan API (FAZ 74.2 Stale Authority Protection)
+      if (req.method === 'POST' && req.url === '/api/corporate/plan/invalidate') {
+        const body = await readBody();
+        const planId = body.planId || body.authoritativePlanId || latestActivePlanId;
+        if (planId && corporatePlanRegistry.has(planId)) {
+          const rec = corporatePlanRegistry.get(planId);
+          rec.status = 'STALE';
+        }
+        if (legacyActivePlan && (!planId || legacyActivePlan.id === planId)) {
+          legacyActivePlan = null;
+        }
+        if (latestActivePlanId === planId) {
+          latestActivePlanId = null;
+        }
+        return sendJson(200, { success: true, invalidatedPlanId: planId });
       }
 
       // 3.5b Inspect & Modernize Legacy Website API
@@ -712,6 +1314,13 @@ export function createApplicationServer({
             enriched: modernization.enriched
           });
         } catch (err) {
+          if (err.message && err.message.includes('[SECURITY_BLOCKED]')) {
+            return sendJson(403, {
+              success: false,
+              blocked: true,
+              error: err.message
+            });
+          }
           return sendJson(500, {
             success: false,
             error: `Site incelenirken hata oluştu: ${err.message}`
@@ -750,32 +1359,246 @@ export function createApplicationServer({
         }
       }
 
-      // 3.6 Corporate Portal Generation & Mutation API
-      if (req.method === 'POST' && req.url === '/api/corporate/generate') {
+      // 3.5d Autonomous From-Scratch Website Synthesis API (FAZ 73)
+      if (req.method === 'POST' && req.url === '/api/corporate/synthesize') {
+        const body = await readBody();
+        try {
+          let websiteData = null;
+          let mapsData = null;
+
+          // If websiteUrl provided, safely inspect
+          if (body.websiteUrl && typeof body.websiteUrl === 'string' && body.websiteUrl.trim()) {
+            try {
+              websiteData = await inspectAndModernizeWebsite(body.websiteUrl.trim(), { timeoutMs: 10000 });
+            } catch (wErr) {
+              console.warn('[SYNTHESIS WEBPAGE SCRAPE WARNING]:', wErr.message);
+            }
+          }
+
+          // If mapsUrl provided, safely inspect
+          if (body.mapsUrl && typeof body.mapsUrl === 'string' && body.mapsUrl.trim()) {
+            try {
+              mapsData = await inspectAndModernizeGoogleMaps(body.mapsUrl.trim(), { timeoutMs: 15000 });
+            } catch (mErr) {
+              console.warn('[SYNTHESIS MAPS SCRAPE WARNING]:', mErr.message);
+            }
+          }
+
+          const synthesisResult = await synthesizeAutonomousWebsite({
+            generationMode: body.generationMode || GenerationMode.SYNTHESIS,
+            manual: body.manual || body,
+            websiteData,
+            mapsData,
+            options: {
+              storageBaseDir: PROJECT_ROOT,
+              skipBrowserRender: body.skipBrowserRender === true,
+              requiredCapabilities: body.requiredCapabilities || [],
+              referenceImage: body.referenceImage || null,
+              referenceImagePath: body.referenceImagePath || null
+            }
+          });
+
+          if (synthesisResult.blocked) {
+            return sendJson(409, {
+              success: false,
+              blocked: true,
+              generationId: synthesisResult.generationId,
+              error: synthesisResult.error,
+              capabilityValidation: synthesisResult.capabilityValidation
+            });
+          }
+
+          return sendJson(200, {
+            success: true,
+            generationId: synthesisResult.generationId,
+            generationMode: synthesisResult.generationMode,
+            qualityGate: synthesisResult.qualityGate,
+            referenceDesignMatch: synthesisResult.referenceDesignMatch || null,
+            previewUrl: synthesisResult.report?.previewUrl,
+            report: synthesisResult.report,
+            proposalOnly: true,
+            executionAuthorized: false
+          });
+        } catch (err) {
+          return sendJson(500, {
+            success: false,
+            error: `Otonom web sitesi sentezi başarısız oldu: ${err.message}`
+          });
+        }
+      }
+
+      // 3.5e Independent Visual & Commercial Critic API (FAZ 74)
+      if (req.method === 'POST' && req.url === '/api/corporate/critic') {
+        const body = await readBody();
+        try {
+          const { generationId, runRevision } = body;
+          if (!generationId || typeof generationId !== 'string') {
+            return sendJson(400, {
+              ok: false,
+              success: false,
+              error: 'generationId is required'
+            });
+          }
+
+          const criticReport = await auditStoredDesign(generationId.trim(), {
+            storageBaseDir: PROJECT_ROOT,
+            runRevision: runRevision === true
+          });
+
+          return sendJson(200, {
+            ok: true,
+            success: true,
+            generationId: criticReport.generationId,
+            critic: {
+              criticVersion: criticReport.criticVersion,
+              overallScore: criticReport.overallScore,
+              grade: criticReport.grade,
+              qualityGate: criticReport.qualityGate,
+              criticalCount: criticReport.criticalFindings.length,
+              majorCount: criticReport.majorFindings.length,
+              minorCount: criticReport.minorFindings.length,
+              dimensionScores: criticReport.dimensionScores,
+              findings: criticReport.criticalFindings.concat(criticReport.majorFindings, criticReport.minorFindings),
+              revisionProposal: criticReport.revisionProposal,
+              proposalOnly: true,
+              executionAuthorized: false
+            },
+            proposalOnly: true,
+            executionAuthorized: false
+          });
+        } catch (err) {
+          return sendJson(500, {
+            ok: false,
+            success: false,
+            error: `Independent critic audit failed: ${err.message}`
+          });
+        }
+      }
+
+      // 3.6 Corporate Portal Generation & Mutation API (/generate & /create)
+      if (req.method === 'POST' && (req.url === '/api/corporate/generate' || req.url === '/api/corporate/create')) {
         const body = await readBody();
         if (!activeWorkspace) {
           activeWorkspace = createProjectWorkspace({ rootPath: PROJECT_ROOT });
         }
 
         let targetPlan = null;
-        if (body.jobId) {
+        let planRecord = null;
+
+        if (body.planId || body.authoritativePlanId) {
+          const reqPlanId = body.planId || body.authoritativePlanId;
+          planRecord = corporatePlanRegistry.get(reqPlanId);
+          if (!planRecord) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: Authoritative plan '${reqPlanId}' not found.`);
+          }
+          targetPlan = planRecord.plan;
+        } else if (body.jobId) {
           const tenantId = body.tenantId || req.headers['x-tenant-id'] || null;
           authoritativeEngine.getJob(body.jobId, { tenantId });
           targetPlan = authoritativeEngine.getJobPlan(body.jobId, { tenantId });
+          if (targetPlan?.id && corporatePlanRegistry.has(targetPlan.id)) {
+            planRecord = corporatePlanRegistry.get(targetPlan.id);
+          }
         } else {
-          targetPlan = legacyActivePlan;
+          // Unkeyed request: resolve from latest active plan, fallback to legacyActivePlan
+          if (latestActivePlanId && corporatePlanRegistry.has(latestActivePlanId)) {
+            planRecord = corporatePlanRegistry.get(latestActivePlanId);
+            targetPlan = planRecord.plan;
+          } else {
+            targetPlan = legacyActivePlan;
+          }
         }
 
         if (!targetPlan) {
           throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: No authoritative plan exists for corporate generation.`);
         }
 
+        // Rule: Explicit rejection of mutation when approval is false
+        if (body.approval === false) {
+          if (planRecord) {
+            planRecord.status = 'FAILED';
+          }
+          if (legacyActivePlan && legacyActivePlan.id === targetPlan.id) {
+            legacyActivePlan = null;
+          }
+          if (latestActivePlanId === targetPlan.id) {
+            latestActivePlanId = null;
+          }
+          throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Mutation blocked: User approval was rejected for corporate generation.`);
+        }
+
+        // FAZ 74.2: Stale & Replay Verifications
+        if (planRecord) {
+          if (planRecord.status === 'CONSUMED') {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Replay execution blocked: Authoritative plan '${planRecord.id}' has already been consumed.`);
+          }
+          if (planRecord.status === 'EXPIRED' || planRecord.status === 'STALE' || planRecord.status === 'INVALIDATED' || planRecord.status === 'FAILED') {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Stale plan blocked: Authoritative plan '${planRecord.id}' is ${planRecord.status} and cannot be executed.`);
+          }
+        }
+
+        // FAZ 74.2: Cross-project authority binding guard
+        if (body.targetDirectory || body.targetDir) {
+          const reqTarget = validateCorporateTargetDirectory(body.targetDirectory || body.targetDir, activeWorkspace.rootPath);
+          const boundTarget = planRecord ? planRecord.targetDirectory : targetPlan.metadata?.targetDirectory;
+          if (boundTarget && boundTarget !== reqTarget) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Cross-project authority violation: Plan is bound to '${boundTarget}', cannot generate for '${reqTarget}'.`);
+          }
+        }
+
+        if (body.companyName || body.projectName) {
+          const reqName = (body.companyName || body.projectName).trim().toLowerCase();
+          const boundName = (planRecord ? planRecord.projectName : targetPlan.metadata?.projectName || '').trim().toLowerCase();
+          if (boundName && boundName !== reqName) {
+            throw new Error(`[${ErrorCodes.SECURITY_BLOCKED}] Cross-project authority violation: Plan is bound to '${planRecord?.projectName || targetPlan.metadata?.projectName}', cannot generate for '${body.companyName || body.projectName}'.`);
+          }
+        }
+
+        let result;
         const corporateGen = createCorporateGenerator();
-        const result = await corporateGen.applyCorporatePlan({
-          plan: targetPlan,
-          workspaceRoot: activeWorkspace.rootPath,
-          approval: body.approval !== false
-        });
+        try {
+          result = await corporateGen.applyCorporatePlan({
+            plan: targetPlan,
+            workspaceRoot: activeWorkspace.rootPath,
+            approval: body.approval !== false,
+            dryRun: Boolean(body.dryRun)
+          });
+        } catch (applyErr) {
+          if (planRecord) {
+            planRecord.status = 'FAILED';
+          }
+          if (legacyActivePlan && legacyActivePlan.id === targetPlan.id) {
+            legacyActivePlan = null;
+          }
+          if (latestActivePlanId === targetPlan.id) {
+            latestActivePlanId = null;
+          }
+          throw applyErr;
+        }
+
+        // Lifecycle state transition: mark consumed or failed
+        if (result.success && !body.dryRun) {
+          if (planRecord) {
+            planRecord.status = 'CONSUMED';
+            planRecord.consumedAt = Date.now();
+          }
+          if (legacyActivePlan && legacyActivePlan.id === targetPlan.id) {
+            legacyActivePlan = null;
+          }
+          if (latestActivePlanId === targetPlan.id) {
+            latestActivePlanId = null;
+          }
+        } else if (!result.success) {
+          if (planRecord) {
+            planRecord.status = 'FAILED';
+          }
+          if (legacyActivePlan && legacyActivePlan.id === targetPlan.id) {
+            legacyActivePlan = null;
+          }
+          if (latestActivePlanId === targetPlan.id) {
+            latestActivePlanId = null;
+          }
+        }
 
         let started = null;
         const shouldAutoStart = body.autoStart === true || (body.autoStart !== false && !process.env.NODE_TEST_CONTEXT);
@@ -791,6 +1614,12 @@ export function createApplicationServer({
           status: 'COMPLETED',
           result,
           files,
+          referenceId: body.referenceId || targetPlan.synthesis?.referenceId || null,
+          referenceImagePath: body.referenceImagePath || targetPlan.synthesis?.referenceImagePath || null,
+          imageDesignSpec: body.imageDesignSpec || targetPlan.synthesis?.imageDesignSpec || null,
+          referenceAnalysis: body.referenceAnalysis || targetPlan.synthesis?.referenceAnalysis || null,
+          referenceImageFidelity: body.referenceImageFidelity || body.fidelityMode || targetPlan.synthesis?.fidelityMode || null,
+          fidelityMode: body.fidelityMode || body.referenceImageFidelity || targetPlan.synthesis?.fidelityMode || null,
           running: Boolean(started?.success),
           port: started?.port || 8080,
           url: started?.url || 'http://localhost:8080/tr/',
@@ -857,6 +1686,49 @@ export function createApplicationServer({
           success: true,
           message: 'Proje sunucusu durduruldu.'
         });
+      }
+
+      // 3.9.1 GrapesJS Web Builder Get Project Content API
+      const projectContentMatch = req.url.match(/^\/api\/projects\/([^\/\?]+)\/content$/);
+      if (req.method === 'GET' && projectContentMatch) {
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
+        const projectId = decodeURIComponent(projectContentMatch[1]);
+        const targetDirAbs = path.resolve(root, 'projeler', projectId);
+        if (!fs.existsSync(targetDirAbs)) {
+          return sendJson(404, { success: false, error: `Proje bulunamadı: ${projectId}` });
+        }
+        let html = '';
+        const publicIndex = path.join(targetDirAbs, 'public', 'index.html');
+        const homePhp = path.join(targetDirAbs, 'resources', 'views', 'frontend', 'home.php');
+        if (fs.existsSync(publicIndex)) {
+          html = fs.readFileSync(publicIndex, 'utf8');
+        } else if (fs.existsSync(homePhp)) {
+          html = fs.readFileSync(homePhp, 'utf8');
+        }
+        return sendJson(200, { success: true, projectId, html });
+      }
+
+      // 3.9.2 GrapesJS Web Builder Save Frontend API
+      if (req.method === 'POST' && req.url === '/api/projects/save-frontend') {
+        const body = await readBody();
+        const root = activeWorkspace ? activeWorkspace.rootPath : PROJECT_ROOT;
+        const projectId = body.projectId;
+        if (!projectId) {
+          return sendJson(400, { success: false, error: 'projectId is required' });
+        }
+        const targetDirAbs = path.resolve(root, 'projeler', projectId);
+        if (!fs.existsSync(targetDirAbs)) {
+          return sendJson(404, { success: false, error: `Proje bulunamadı: ${projectId}` });
+        }
+        if (body.html) {
+          const publicIndex = path.join(targetDirAbs, 'public', 'index.html');
+          fs.writeFileSync(publicIndex, body.html, 'utf8');
+          const homePath = path.join(targetDirAbs, 'resources', 'views', 'frontend', 'home.php');
+          if (fs.existsSync(path.dirname(homePath))) {
+            fs.writeFileSync(homePath, body.html, 'utf8');
+          }
+        }
+        return sendJson(200, { success: true, message: 'Tasarım başarıyla kaydedildi.' });
       }
 
       // 3.10 Autonomous Browser QA & Console Self-Healing API
@@ -1632,7 +2504,7 @@ export function createApplicationServer({
       }
 
       // POST /api/v1/visual/proposals/:id/validate - Validate schema and stale state
-      if (req.method === 'POST' && req.url.includes('/proposals/') && req.url.endsWith('/validate')) {
+      if (req.method === 'POST' && req.url.startsWith('/api/v1/visual/proposals/') && req.url.endsWith('/validate')) {
         try {
           const parts = req.url.split('/');
           const id = parts[parts.indexOf('proposals') + 1];

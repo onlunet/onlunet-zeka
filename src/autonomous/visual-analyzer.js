@@ -82,6 +82,103 @@ export function parseCssColor(colorStr) {
 }
 
 /**
+ * Determines whether text qualifies as 'large text' according to WCAG 2.1 criteria
+ * Large text is >= 18pt (24px) or >= 14pt (18.66px) bold (weight >= 700)
+ */
+export function isLargeText(fontSize, fontWeight = 400) {
+  const fs = parseFloat(fontSize) || 16;
+  const fw = parseInt(fontWeight, 10) || (fontWeight === 'bold' ? 700 : 400);
+  return fs >= 24 || (fs >= 18.66 && fw >= 700);
+}
+
+/**
+ * Composites a foreground RGBA layer over a background RGBA layer
+ */
+export function compositeRgba(under, over) {
+  const a = Math.max(0, Math.min(1, over.a !== undefined ? over.a : 1.0));
+  return {
+    r: Math.round(over.r * a + under.r * (1 - a)),
+    g: Math.round(over.g * a + under.g * (1 - a)),
+    b: Math.round(over.b * a + under.b * (1 - a)),
+    a: 1.0
+  };
+}
+
+/**
+ * Resolves effective background color by compositing an array of layers from root to leaf
+ *
+ * @param {Array<Object>} layers - Array of parsed RGBA color objects from ancestor to element
+ * @param {Object} [fallbackBg] - Fallback background if all layers are transparent
+ * @returns {Object} Effective opaque RGBA color
+ */
+export function resolveEffectiveBackgroundColor(layers = [], fallbackBg = { r: 255, g: 255, b: 255, a: 1.0 }) {
+  let composite = { ...fallbackBg };
+  for (const layer of layers) {
+    if (!layer || typeof layer !== 'object') continue;
+    if (layer.a === 0) continue;
+    composite = compositeRgba(composite, layer);
+  }
+  return composite;
+}
+
+/**
+ * Evaluates WCAG contrast between foreground and background colors
+ *
+ * @param {Object} params
+ * @param {string|Object} params.foreground - CSS color string or parsed { r, g, b, a }
+ * @param {string|Object} params.background - CSS color string or parsed { r, g, b, a }
+ * @param {number} [params.fontSize=16]
+ * @param {number|string} [params.fontWeight=400]
+ * @returns {Object} Contrast evaluation result
+ */
+export function evaluateWcagContrast({ foreground, background, fontSize = 16, fontWeight = 400 } = {}) {
+  const fg = typeof foreground === 'string' ? parseCssColor(foreground) : foreground;
+  const bg = typeof background === 'string' ? parseCssColor(background) : background;
+
+  if (!fg || !bg) {
+    return {
+      valid: false,
+      ratio: 1.0,
+      passesAA: false,
+      passesAAA: false,
+      isLargeText: false,
+      level: 'FAILED',
+      severity: 'none'
+    };
+  }
+
+  const large = isLargeText(fontSize, fontWeight);
+  const minRatioAA = large ? 3.0 : 4.5;
+  const minRatioAAA = large ? 4.5 : 7.0;
+
+  const lumFg = calculateLuminance(fg.r, fg.g, fg.b);
+  const lumBg = calculateLuminance(bg.r, bg.g, bg.b);
+  const ratio = calculateContrastRatio(lumFg, lumBg);
+
+  const passesAA = ratio >= minRatioAA;
+  const passesAAA = ratio >= minRatioAAA;
+
+  let severity = 'none';
+  if (!passesAA) {
+    severity = ratio < 2.0 ? 'critical' : (ratio < 3.0 ? 'high' : 'medium');
+  } else if (!passesAAA) {
+    severity = 'low';
+  }
+
+  return {
+    valid: true,
+    ratio,
+    passesAA,
+    passesAAA,
+    isLargeText: large,
+    minRatioAA,
+    minRatioAAA,
+    level: passesAAA ? 'AAA' : (passesAA ? 'AA' : 'FAIL'),
+    severity
+  };
+}
+
+/**
  * Client-side script injected via CDP Runtime.evaluate to extract complete DOM layout & visual metrics
  */
 export const IN_PAGE_ANALYSIS_SCRIPT = `
@@ -92,6 +189,7 @@ export const IN_PAGE_ANALYSIS_SCRIPT = `
     color: {},
     components: {},
     repetition: {},
+    contrast: {},
     rawMetrics: {}
   };
 
@@ -232,6 +330,198 @@ export const IN_PAGE_ANALYSIS_SCRIPT = `
     hasExcessiveGlassmorphism: glassmorphismCount > 4,
     hasExcessivePillBadges: pillElementCount > 6
   };
+
+  // 3b. DOM CONTRAST ANALYSIS
+  function parseColor(str) {
+    if (!str || typeof str !== 'string') return null;
+    const s = str.trim().toLowerCase();
+    const m = s.match(/rgba?\\(\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)(?:\\s*,\\s*([0-9.]+))?\\s*\\)/);
+    if (m) {
+      return {
+        r: parseInt(m[1], 10),
+        g: parseInt(m[2], 10),
+        b: parseInt(m[3], 10),
+        a: m[4] !== undefined ? parseFloat(m[4]) : 1.0
+      };
+    }
+    if (s.startsWith('#')) {
+      const hex = s.slice(1);
+      if (hex.length === 3 || hex.length === 4) {
+        return {
+          r: parseInt(hex[0] + hex[0], 16),
+          g: parseInt(hex[1] + hex[1], 16),
+          b: parseInt(hex[2] + hex[2], 16),
+          a: hex.length === 4 ? parseInt(hex[3] + hex[3], 16) / 255 : 1.0
+        };
+      }
+      if (hex.length === 6 || hex.length === 8) {
+        return {
+          r: parseInt(hex.slice(0, 2), 16),
+          g: parseInt(hex.slice(2, 4), 16),
+          b: parseInt(hex.slice(4, 6), 16),
+          a: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1.0
+        };
+      }
+    }
+    return null;
+  }
+
+  function srgbToLinear(val) {
+    const v = val / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+
+  function getLuminance(r, g, b) {
+    return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
+  }
+
+  function getContrastRatio(lum1, lum2) {
+    const l1 = Math.max(lum1, lum2);
+    const l2 = Math.min(lum1, lum2);
+    return Number(((l1 + 0.05) / (l2 + 0.05)).toFixed(2));
+  }
+
+  function getEffectiveBackgroundColor(el) {
+    let curr = el;
+    const layers = [];
+    while (curr && curr !== document && curr !== document.documentElement) {
+      const st = window.getComputedStyle(curr);
+      if (st) {
+        const bg = parseColor(st.backgroundColor);
+        if (bg && bg.a > 0) {
+          layers.unshift(bg);
+          if (bg.a >= 0.99) break;
+        }
+      }
+      curr = curr.parentElement;
+    }
+
+    let base = { r: 255, g: 255, b: 255, a: 1.0 };
+    if (document.body) {
+      const bodySt = window.getComputedStyle(document.body);
+      const parsedBodyBg = parseColor(bodySt ? bodySt.backgroundColor : '');
+      if (parsedBodyBg && parsedBodyBg.a >= 0.99) {
+        base = parsedBodyBg;
+      }
+    }
+    if (document.documentElement) {
+      const htmlSt = window.getComputedStyle(document.documentElement);
+      const parsedHtmlBg = parseColor(htmlSt ? htmlSt.backgroundColor : '');
+      if (parsedHtmlBg && parsedHtmlBg.a >= 0.99) {
+        base = parsedHtmlBg;
+      }
+    }
+
+    let finalBg = { ...base };
+    for (const layer of layers) {
+      const a = layer.a;
+      finalBg.r = Math.round(layer.r * a + finalBg.r * (1 - a));
+      finalBg.g = Math.round(layer.g * a + finalBg.g * (1 - a));
+      finalBg.b = Math.round(layer.b * a + finalBg.b * (1 - a));
+      finalBg.a = 1.0;
+    }
+    return finalBg;
+  }
+
+  function getElementSelector(el) {
+    if (el.id) return '#' + el.id;
+    let sel = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      const cls = el.className.trim().split(/\\s+/).filter(c => c && !c.includes(':')).slice(0, 2);
+      if (cls.length) sel += '.' + cls.join('.');
+    }
+    if (el.parentElement && el.parentElement !== document.body && el.parentElement !== document.documentElement) {
+      const p = el.parentElement;
+      const pSel = p.tagName.toLowerCase() + (p.id ? '#' + p.id : (p.className && typeof p.className === 'string' ? '.' + p.className.trim().split(/\\s+/)[0] : ''));
+      return pSel + ' > ' + sel;
+    }
+    return sel;
+  }
+
+  const contrastIssues = [];
+  let checkedCount = 0;
+  let aaFailures = 0;
+  let aaaFailures = 0;
+  let worstRatio = 21.0;
+
+  const allCandidates = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6, p, a, button, label, span, li, td, th, input, select, textarea, div, small, strong, em, b, i'));
+  const candidateElements = allCandidates.filter(el => {
+    const hasDirect = Array.from(el.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
+    const isForm = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(el.tagName);
+    return hasDirect || isForm;
+  });
+
+  for (const el of candidateElements.slice(0, 400)) {
+    const style = window.getComputedStyle(el);
+    if (!style) continue;
+    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+    if (el.offsetParent === null && style.position !== 'fixed' && style.position !== 'sticky') continue;
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+
+    const rawText = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+    if (!rawText) continue;
+
+    const fgColor = parseColor(style.color);
+    if (!fgColor) continue;
+
+    const effBg = getEffectiveBackgroundColor(el);
+    const lumFg = getLuminance(fgColor.r, fgColor.g, fgColor.b);
+    const lumBg = getLuminance(effBg.r, effBg.g, effBg.b);
+    const ratio = getContrastRatio(lumFg, lumBg);
+
+    const fs = parseFloat(style.fontSize) || 16;
+    const fw = parseInt(style.fontWeight, 10) || (style.fontWeight === 'bold' ? 700 : 400);
+    const isLarge = fs >= 24 || (fs >= 18.66 && fw >= 700);
+
+    const minAA = isLarge ? 3.0 : 4.5;
+    const minAAA = isLarge ? 4.5 : 7.0;
+
+    checkedCount++;
+    if (ratio < worstRatio) {
+      worstRatio = ratio;
+    }
+
+    if (ratio < minAA) {
+      aaFailures++;
+      const sev = ratio < 2.0 ? 'critical' : (ratio < 3.0 ? 'high' : 'medium');
+      if (contrastIssues.length < 20) {
+        contrastIssues.push({
+          selector: getElementSelector(el),
+          text: rawText.length > 50 ? rawText.slice(0, 47) + '...' : rawText,
+          foreground: style.color,
+          background: 'rgb(' + effBg.r + ', ' + effBg.g + ', ' + effBg.b + ')',
+          ratio,
+          fontSize: Math.round(fs),
+          fontWeight: fw,
+          level: 'AA',
+          severity: sev
+        });
+      }
+    } else if (ratio < minAAA) {
+      aaaFailures++;
+    }
+  }
+
+  const contrastSummary = {
+    checked: checkedCount,
+    failures: aaFailures,
+    aaFailures,
+    aaaFailures,
+    worstRatio: checkedCount > 0 ? worstRatio : 21.0
+  };
+
+  result.contrast = {
+    contrastIssues,
+    contrastSummary
+  };
+
+  result.color.hasLowContrastText = aaFailures > 0;
+  result.color.contrastIssuesCount = aaFailures;
+  result.color.worstContrastRatio = checkedCount > 0 ? worstRatio : 21.0;
+  result.color.contrastSummary = contrastSummary;
+  result.color.contrastIssues = contrastIssues.slice(0, 10);
 
   // 4. COMPONENT IDENTIFICATION
   const navEl = document.querySelector('nav, header, [role="navigation"]');
@@ -401,6 +691,34 @@ export function buildDeterministicMetricsReport(rawData = {}) {
   }
 
   // Color Evaluation
+  const contrast = rawData.contrast || {};
+  const contrastSummary = contrast.contrastSummary || color.contrastSummary || { checked: 0, failures: 0, worstRatio: 21.0 };
+  const contrastIssues = contrast.contrastIssues || color.contrastIssues || [];
+
+  if (contrastSummary.failures > 0) {
+    if (contrastSummary.worstRatio < 2.0) {
+      warnings.push({
+        id: 'WARN_CRITICAL_CONTRAST',
+        severity: 'critical',
+        category: 'color',
+        title: 'Kritik Düzeyde Düşük Metin Kontrastı (WCAG AA İhlali)',
+        description: `${contrastSummary.failures} elementte okunması neredeyse imkansız kontrast tespit edildi (En kötü oran: ${contrastSummary.worstRatio}:1, standart: 4.5:1).`
+      });
+      aiPatternScore += 25;
+    } else {
+      warnings.push({
+        id: 'WARN_LOW_CONTRAST',
+        severity: 'high',
+        category: 'color',
+        title: 'Yetersiz Metin Kontrastı (WCAG AA İhlali)',
+        description: `${contrastSummary.failures} metin elementinde WCAG AA standardı altında kontrast tespit edildi (En kötü oran: ${contrastSummary.worstRatio}:1, standart: 4.5:1).`
+      });
+      aiPatternScore += 15;
+    }
+  } else if (contrastSummary.checked > 0) {
+    strengths.push('Erişilebilir ve yüksek kontrastlı metin tipografisi (WCAG AA uyumlu)');
+  }
+
   if (color.hasExcessiveGradients) {
     warnings.push({
       id: 'WARN_EXCESSIVE_GRADIENTS',
@@ -477,17 +795,21 @@ export function buildDeterministicMetricsReport(rawData = {}) {
     color: Object.freeze({ ...color }),
     components: Object.freeze({ ...components }),
     repetition: Object.freeze({ ...repetition }),
+    contrast: Object.freeze({
+      contrastIssues: Object.freeze([...(contrastIssues || [])]),
+      contrastSummary: Object.freeze({ ...(contrastSummary || {}) })
+    }),
     warnings: Object.freeze([...warnings]),
     strengths: Object.freeze([...strengths]),
     aiPatternRepetitionScore: boundedAiPatternScore,
-    deterministicQualityScore: computeDeterministicQuality(layout, typography, color, components, repetition)
+    deterministicQualityScore: computeDeterministicQuality(layout, typography, color, components, repetition, { contrastSummary, contrastIssues })
   });
 }
 
 /**
  * Computes deterministic quality score (0-100) based entirely on objective metrics
  */
-function computeDeterministicQuality(layout, typography, color, components, repetition) {
+function computeDeterministicQuality(layout, typography, color, components, repetition, contrast = {}) {
   let score = 100;
 
   if (layout.hasHorizontalOverflow) score -= 25;
@@ -502,13 +824,26 @@ function computeDeterministicQuality(layout, typography, color, components, repe
   if (color.hasExcessiveGradients) score -= 10;
   if (repetition.hasRepeatedCardSections) score -= 15;
 
+  const contrastSummary = contrast.contrastSummary || color.contrastSummary;
+  if (contrastSummary && contrastSummary.failures > 0) {
+    if (contrastSummary.worstRatio < 2.0) score -= 25;
+    else if (contrastSummary.worstRatio < 3.0) score -= 15;
+    else if (contrastSummary.failures >= 5) score -= 12;
+    else score -= 8;
+  }
+
   return Math.min(100, Math.max(10, score));
 }
 
 /**
  * Full end-to-end visual analysis of a URL using Chrome CDP
  */
-export async function analyzeRenderedUrl(url, options = {}) {
+export async function analyzeRenderedUrl(urlOrOptions, options = {}) {
+  const url = typeof urlOrOptions === 'string' ? urlOrOptions : urlOrOptions?.url;
+  const opts = typeof urlOrOptions === 'object' && !Array.isArray(urlOrOptions)
+    ? { ...urlOrOptions, ...options }
+    : options;
+
   if (!url || typeof url !== 'string') {
     throw new Error('[VISUAL_ANALYZER_ERROR] url is required');
   }
@@ -517,7 +852,7 @@ export async function analyzeRenderedUrl(url, options = {}) {
     viewport = { width: 1440, height: 900 },
     timeoutMs = 12000,
     browserInstance = null
-  } = options;
+  } = opts;
 
   let ownBrowser = false;
   let browser = browserInstance;
